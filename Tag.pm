@@ -34,9 +34,10 @@ use MP3::Tag::File;
 use MP3::Tag::Inf;
 use MP3::Tag::CDDB_File;
 use MP3::Tag::ParseData;
+use MP3::Tag::LastResort;
 
 use vars qw/$VERSION %config/;
-%config = ( autoinfo	=> [qw(ParseData ID3v2 ID3v1 CDDB_File Inf filename)],
+%config = ( autoinfo	=> [qw(ParseData ID3v2 ID3v1 CDDB_File Inf filename LastResort)],
 	    cddb_files	=> [qw(audio.cddb cddb.out cddb.in)],
 	    v2title	=> [qw(TIT1 TIT2 TIT3)],
 	    extension	=> ['\.(?!\d+\b)\w{1,4}$'],
@@ -45,9 +46,11 @@ use vars qw/$VERSION %config/;
 	    parse_filename_ignore_case => [1],
 	    parse_filename_merge_dots => [1],
 	    parse_join	=> ['; '],
+	    year_is_timestamp	=> [1],
+	    comment_remove_date	=> [0],
 	  );
 
-$VERSION="0.90";
+$VERSION="0.91";
 
 =pod
 
@@ -105,7 +108,7 @@ It provides an easy way to access the functions of seperate modules
 which do the handling of reading/writing the tags itself.
 
 At the moment MP3::Tag::ID3v1 and MP3::Tag::ID3v2 are supported for read
-and write; MP3::Tag::Inf, MP3::Tag::CDDB_File, and MP3::Tag::File are
+and write; MP3::Tag::Inf, MP3::Tag::CDDB_File, MP3::Tag::File, MP3::Tag::LastResort are
 supported for read access (the information obtained by parsing CDDB files,
 F<.inf> file and the filename).
 
@@ -198,8 +201,8 @@ sub get_tags {
     my (@IDs, $id);
 
     # Will not create a reference loop
-    local $self->{__proxy}[0] = $self unless $self->{__proxy}[0];
-    for $id (qw(ParseData ID3v2 ID3v1 Inf CDDB_File)) {
+    local $self->{__proxy}[0] = $self unless $self->{__proxy}[0] or $ENV{MP3TAG_TEST_WEAKEN};
+    for $id (qw(ParseData ID3v2 ID3v1 Inf CDDB_File LastResort)) {
 	my $ref = "MP3::Tag::$id"->new_with_parent($self->{filename}, $self->{__proxy});
 	next unless defined $ref;
 	$self->{$id} = $ref;
@@ -377,11 +380,17 @@ If an optional argument C<'from'> is given, returns an array reference with
 the first element being the value, the second the tag (ID3v2 or ID3v1 or
 filename) from which the value is taken.
 
+=item comment_collection(), comment_track(), title_track(). author_collection()
+
+access the corresponding fields returned by parse() method of CDDB_File.
+
 =cut
+
+my %ignore_0length = qw(ID3v1 1 CDDB_File 1 Inf 1);
 
 sub auto_field($;$) {
     my ($self, $elt, $from) = (shift, shift, shift);
-    local $self->{__proxy}[0] = $self unless $self->{__proxy}[0];
+    local $self->{__proxy}[0] = $self unless $self->{__proxy}[0] or $ENV{MP3TAG_TEST_WEAKEN};
 
     my $parts = $self->get_config($elt) || $self->get_config('autoinfo');
     $self->get_tags;
@@ -389,8 +398,8 @@ sub auto_field($;$) {
     foreach my $part (@$parts) {
 	next unless exists $self->{$part};
 	next unless defined (my $out = $self->{$part}->$elt());
-	# Ignore 0-length answers from ID3v1 and Inf
-	next unless length $out or $part ne 'ID3v1' and $part ne 'Inf';	# Return empty...
+	# Ignore 0-length answers from ID3v1, CDDB_File, and Inf
+	next if not length $out and $ignore_0length{$part};	# Return empty...
 	return [$out, $part] if $from;
 	return $out;
     }
@@ -401,7 +410,21 @@ for my $elt ( qw( title track artist album comment year genre ) ) {
   no strict 'refs';
   *$elt = sub (;$) {
     my $self = shift;
-    $self->auto_field($elt, @_);
+    my $translate = ($self->get_config("translate_$elt") || [])->[0] || sub {$_[1]};
+    return &$translate($self, $self->auto_field($elt, @_));
+  }
+}
+
+for my $elt ( qw( comment_collection comment_track title_track artist_collection ) ) {
+  no strict 'refs';
+  my ($tr) = ($elt =~ /^(\w+)_/);
+  *$elt = sub (;$) {
+    my $self = shift;
+    local $self->{__proxy}[0] = $self unless $self->{__proxy}[0] or $ENV{MP3TAG_TEST_WEAKEN};
+    $self->get_tags;
+    return unless exists $self->{CDDB_File};
+    my $translate = ($self->get_config("translate_$tr") || [])->[0] || sub {$_[1]};
+    return &$translate( $self, $self->{CDDB_File}->parse($elt) );
   }
 }
 
@@ -515,19 +538,50 @@ Possible items are:
 
   List of files to look for in the directory of MP3 file to get CDDB info.
 
+* year_is_timestamp
+
+  If TRUE (default) parse() will match complicated timestamps against C<%y>;
+  for example, C<2001-10-23--30,2002-02-28> is a range from 23rd to 30th of
+  October 2001, I<and> 28th of February of 2002.  According to ISO, C<--> can
+  be replaced by C</> as well.  For convenience, the leading 0 can be omited
+  from the fields which ISO requires to be 2-digit.
+
+* comment_remove_date
+
+  When extracting the date from comment fields, remove the recognized portion
+  even if it is human readable (e.g., C<Recorded on 2014-3-23>) if TRUE.
+  Current default: FALSE.
+
+* translate_*
+
+  A subroutine used to munch a field C<*> (out of C<title track artist album comment year genre>)
+  Takes two arguments: the MP3::Tag object, and the current value of the field.
+
+  The second argument may also have the form C<[value, handler]>, where C<handler>
+  is the string indentifying the handler which returned the value.
+
 * Later there will be probably more things to configure.
 
 =cut
+
+my $conf_rex;
 
 sub config {
     my ($self, $item, @options) = @_;
     $item = lc $item;
     my $config = ref $self ? ($self->{config} ||= {%config}) : \%config;
+    my @known = qw(autoinfo title artist album year comment track genre
+		   v2title cddb_files force_interpolate parse_data parse_split
+		   parse_join parse_filename_ignore_case
+		   parse_filename_merge_dots year_is_timestamp
+		   comment_remove_date extension);
+    my @tr = map "translate_$_", qw( title track artist album comment year genre );
+    $conf_rex = '^(' . join('|', @known, @tr) . ')$' unless $conf_rex;
 
     if ($item =~ /^(force)$/) {
 	return $config->{$item} = {@options};
-    } elsif ($item !~ /^(autoinfo|title|artist|album|year|comment|track|genre|v2title|cddb_files|force_interpolate|parse_data|parse_split|parse_join|parse_filename_ignore_case|parse_filename_merge_dots|extension)$/) {
-	warn "MP3::Tag::config(): Unknown option '$item' found\n";
+    } elsif ($item !~ $conf_rex) {
+	warn "MP3::Tag::config(): Unknown option '$item' found; known options: @known @tr\n";
 	return;
     }
 
@@ -565,8 +619,13 @@ Sets an entry in a scratch array ($n=3 corresponds to C<%{u3}>).
 
 sub get_user ($$) {
     my ($self, $item) = @_;
-    return unless $self->{userdata} and defined $self->{userdata}[$item];
-    $self->{userdata}[$item];
+    unless ($self->{userdata}) {
+        local $self->{__proxy}[0] = $self unless $self->{__proxy}[0] or $ENV{MP3TAG_TEST_WEAKEN};
+	$self->{ParseData}->parse('track');	# Populate the hash if possible
+	$self->{userdata} ||= [];
+    }
+    return unless defined (my $d = $self->{userdata}[$item]);
+    $d;
 }
 
 sub set_user ($$$) {
@@ -606,6 +665,20 @@ The one-letter ESCAPEs are replaced by
 		A => absolute filename without extension
 		B => filename without the directory part and extension
 		N => filename as originally given without extension
+
+		v	mpeg_version
+		L	mpeg_layer_roman
+		r	bitrate_kbps
+		q	frequency_kHz
+		Q	frequency_Hz
+		S	total_secs_int
+		m	total_mins
+		s	leftover_secs
+		C	is_copyrighted_YN
+		p	frames_padded_YN
+		o	channel_mode
+		u	frames
+
 
 Additionally, ESCAPE can be a string (with all backslashes and curlies escaped)
 enclosed in curly braces C<{}>.  The interpretation is the following:
@@ -647,6 +720,12 @@ String starting with I<LETTER>C<:> or C<!>I<LETTER>C<:> are treated similarly
 to ID3v2 conditionals, but the condition is that the corresponding escape
 expands to non-empty string.
 
+=item *
+
+Strings C<aC>, C<tT>, C<cC>, C<cT> are replaced for collection artist,
+track title, collection comment, and track comment as obtained from
+CDDB_File.
+
 =over
 
 The default for the fill character is SPACE.  Fill character should preceed
@@ -666,21 +745,55 @@ if title is C<TITLE>, but TIT3 is not present.
 
 =cut
 
-my %trans = (	't' => 'title',
-		'a' => 'artist',
-		'l' => 'album',
-		'y' => 'year',
-		'g' => 'genre',
-		'c' => 'comment',
-		'n' => 'track',
-		'E' =>  'filename_extension',
-		'e' =>  'filename_extension_nodot',
-		'A' =>  'abs_filename_noextension',
-		'B' =>  'filename_nodir_noextension',
-		'N' =>  'filename_noextension',
-		'f' =>  'filename_nodir',
-		'D' =>  'dirname',
-		'F' =>  'abs_filename'  );
+my %trans = qw(	t	title
+		a	artist
+		l	album
+		y	year
+		g	genre
+		c	comment
+		n	track
+		E	filename_extension
+		e	filename_extension_nodot
+		A	abs_filename_noextension
+		B	filename_nodir_noextension
+		N	filename_noextension
+		f	filename_nodir
+		D	dirname
+		F	abs_filename
+		aC	artist_collection
+		tT	title_track
+		cC	comment_collection
+		cT	comment_track
+
+		v	mpeg_version
+		L	mpeg_layer_roman
+		?	is_stereo
+		?	is_vbr
+		r	bitrate_kbps
+		q	frequency_kHz
+		Q	frequency_Hz
+		?	size_bytes
+		S	total_secs_int
+		m	total_mins
+		s	leftover_secs
+		?	leftover_msec
+		?	time_mm_ss
+		C	is_copyrighted_YN
+		p	frames_padded_YN
+		o	channel_mode
+		u	frames
+		?	frame_len
+		?	vbr_scale
+  );
+
+# Different:	%v is without trailing 0s, %q has fractional part,
+#		%e, %E are for the extension,
+#		%r is a number instead of 'Variable', %u is one less...
+# Missing:
+#	%b      Number of corrupt audio frames (integer)
+#	%e      Emphasis (string)
+#	%E      CRC Error protection (string)
+#	%O      Original material flag (string)
 
 sub interpolate {
     my ($self, $pattern) = @_;
@@ -688,7 +801,7 @@ sub interpolate {
     my $res = "";
     my $ids;
 
-    while ($pattern =~ s/^([^%]+)|^%(?:(?:\((.)\)|([^-.1-9]))?(-)?(\d+))?(?:\.(\d+))?([talygcnfFeEABDN{%])//s) {
+    while ($pattern =~ s/^([^%]+)|^%(?:(?:\((.)\)|([^-.1-9]))?(-)?(\d+))?(?:\.(\d+))?([talygcnfFeEABDNvLrqQSmsCpou{%])//s) {
 	$res .= $1, next if defined $1;
 	my ($fill, $left, $minwidth, $maxwidth, $what)
 	    = ((defined $2 ? $2 : $3), $4, $5, $6, $7);
@@ -701,6 +814,9 @@ sub interpolate {
 	    }
 	} elsif ($what eq '{' and $pattern =~ s/^U(\d+)}//) {	# User data
 	    $str = $self->get_user($1);
+	} elsif ($what eq '{' and $pattern =~ s/^(aC|tT|c[TC])}//) {
+	    my $meth = $trans{$1};
+	    $str = $self->$meth();
 	} elsif ($what eq '{' and $pattern =~ s/^(!)?([talygcnfFeEABD]):((?:[^\\{}]|\\[\\{}])*)}//) {
 	    my $neg = $1;
 	    my $have = length($self->interpolate("%$2"));
@@ -765,7 +881,9 @@ and corresponds to the hash key C<UE<lt>numberU<gt>>.
   $author = $res->{author};
 
 2-digit numbers are allowed for the track number (the leading 0 is stripped);
-4-digit years in the range 1000..2999 are allowed for year.
+4-digit years in the range 1000..2999 are allowed for year.  Alternatively, if
+option year_is_timestamp is TRUE (default), year may be a range of timestamps
+in the format understood by ID3v2 method year() (see L<MP3::Tag::ID3v2/"year">).
 
 Currently the regular expressions with capturing parens are not supported.
 
@@ -809,7 +927,10 @@ sub _parse_rex_microinterpolate {	# $self->idem($code, $groups, $ecount)
     return '%' if $code eq '%';
     # In these two, allow setting to '' too...
     $_[0] .= $code, return '((?<!\d)\d{1,2}(?!\d)|\A\Z)' if $code eq 'n';
-    $_[0] .= $code, return '((?<!\d)[12]\d{3}(?!\d)|\A\Z)' if $code eq 'y';
+    $_[0] .= $code, return '((?<!\d)[12]\d{3}(?:(?:--|[-:/T\0,])\d(?:|\d|\d\d\d))*(?!\d)|\A\Z)'
+	if $code eq 'y' and ($self->get_config('year_is_timestamp'))->[0];
+    $_[0] .= $code, return '((?<!\d)[12]\d{3}(?!\d)|\A\Z)'
+	if $code eq 'y';
     $_[0] .= $code, return '(.*)' if $code =~ /^[talgc]$/;
     $_[1]++, return $self->_rex_protect_filename($self->interpolate("%$1"), $1)
 	if $code =~ /^=([ABDfFN]|{d\d+})$/;
@@ -1014,6 +1135,110 @@ sub filename_extension_nodot {
     $e =~ s/^\.//;
     return $e;
 }
+
+=item mpeg_version()
+
+=item mpeg_layer()
+
+=item mpeg_layer_roman()
+
+=item is_stereo()
+
+=item is_vbr()
+
+=item bitrate_kbps()
+
+=item frequency_Hz()
+
+=item frequency_kHz()
+
+=item size_bytes()
+
+=item total_secs()
+
+=item total_secs_int()
+
+=item total_mins()
+
+=item leftover_secs()
+
+=item leftover_msec()
+
+=item time_mm_ss()
+
+=item is_copyrighted()
+
+=item is_copyrighted_YN()
+
+=item frames_padded()
+
+=item frames_padded_YN()
+
+=item channel_mode_int()
+
+=item frames()
+
+=item frame_len()
+
+=item vbr_scale()
+
+These methods return the information about the contents of the MP3 file.
+Useing these methods requires that the module L<MP3::Info|MP3::Info>
+is installed.  Since these calls are redirectoed to the module
+L<MP3::Info|MP3::Info>, the returned info is subject to the same restrictions
+as the method get_mp3info() of this module; in particular, the information
+about the frame number and frame length is only approximate
+
+vbr_scale() is from the VBR header; total_secs() is not necessarily an integer,
+but total_secs_int() is;
+time_mm_ss() has format C<MM:SS>; the C<*_YN> flavors return the value as a
+string Yes or No; mpeg_layer_roman() returns the value as a roman numeral;
+channel_mode() takes values in C<'stereo', 'joint stereo', 'dual channel', 'mono'>.
+
+=cut
+
+my %mp3info = qw(
+  mpeg_version		VERSION
+  mpeg_layer		LAYER
+  is_stereo		STEREO
+  is_vbr		VBR
+  bitrate_kbps		BITRATE
+  frequency_kHz		FREQUENCY
+  size_bytes		SIZE
+  total_secs		SECS
+  total_mins		MM
+  leftover_secs		SS
+  leftover_msec		MS
+  time_mm_ss		TIME
+  is_copyrighted	COPYRIGHT
+  frames_padded		PADDING
+  channel_mode_int	MODE
+  frames		FRAMES
+  frame_len		FRAME_LENGTH
+  vbr_scale		VBR_SCALE
+);
+
+for my $elt (keys %mp3info) {
+  no strict 'refs';
+  my $k = $mp3info{$elt};
+  *$elt = sub (;$) {
+    require MP3::Info;
+    my $self = shift;
+    (MP3::Info::get_mp3info($self->abs_filename))->{$k}
+  }
+}
+
+sub frequency_Hz ($) {
+  1000 * (shift->frequency_kHz);
+}
+
+sub mpeg_layer_roman	{ 'I' x (shift->mpeg_layer) }
+sub total_secs_int	{ int (shift->total_secs) }
+sub frames_padded_YN	{ shift->frames_padded() ? 'Yes' : 'No' }
+sub is_copyrighted_YN	{ shift->is_copyrighted() ? 'Yes' : 'No' }
+
+my @channel_modes = ('stereo', 'joint stereo', 'dual channel', 'mono');
+sub channel_mode	{ $channel_modes[shift->channel_mode_int] }
 
 sub DESTROY {
     my $self=shift;

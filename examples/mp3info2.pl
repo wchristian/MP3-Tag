@@ -1,8 +1,14 @@
+extproc perl -Sw
 #!/usr/bin/perl -w
+
+use FindBin;
+use lib "$FindBin::Bin";
 
 use MP3::Tag;
 use Getopt::Std 'getopts';
 use strict;
+
+BEGIN { eval 'require Music_Translate_Fields' }
 
 my %opt;
 getopts('c:a:t:l:n:g:y:uDp:C:P:E:G@', \%opt);
@@ -39,6 +45,12 @@ if (defined $opt{C}) {
     $c =~ s/^(\w+)=/$1,/;
     MP3::Tag->config(split /,/, $c);
   }
+}
+
+for my $elt ( qw( title track artist album comment year genre ) ) {
+  no strict 'refs';
+  MP3::Tag->config("translate_$elt", \&{"Music_Translate_Fields::translate_$elt"})
+    if defined &{"Music_Translate_Fields::translate_$elt"};
 }
 
 my @parse_data;
@@ -247,6 +259,11 @@ The option C<-E> should contain the letters of the options where
 C<\\, \n, \t> are interpolated (default: C<p>).  If the option C<-@> is given,
 all characters C<@> in the options are replaced by C<%>; this may be convenient
 if the shell treats C<%> specially.
+
+=head1 Extra translation
+
+If a module C<Music_Translate_Fields> is available, it is loaded.  It may
+defined methods C<translate_artist> etc which would be used by L<MP3::Tag>.
 
 =head1 EXAMPLES
 

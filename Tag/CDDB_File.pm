@@ -5,7 +5,7 @@ use File::Basename;
 use File::Spec;
 use vars qw /$VERSION @ISA/;
 
-$VERSION="0.01";
+$VERSION="0.02";
 @ISA = 'MP3::Tag::__hasparent';
 
 =pod
@@ -96,14 +96,33 @@ sub DESTROY {}
 
 parse_filename() extracts information about artist, title, track number,
 album and year from the CDDB record.  $what is optional; it maybe title,
-track, artist, album, year or comment. If $what is defined parse() will return
+track, artist, album, year, genre or comment. If $what is defined parse() will return
 only this element.
+
+Additionally, $what can take values C<artist_collection> (returns the value of
+artist in the disk-info field DTITLE, but only if author is specified in the
+track-info field TTITLE), C<title_track> (returns the title specifically from
+track-info field - the C<track> may fall back to the info from disk-info
+field), C<comment_collection> (processed EXTD comment), C<comment_track>
+(processed EXTT comment).
+
+The returned year and genre is taken from DYEAR, DGENRE, EXTT, EXTD fields;
+recognized prefixes in the two last fields are YEAR, ID3Y, ID3G.
+The declarations of this form are stripped from the returned comment.
+
+An alternative
+syntax "Recorded"/"Recorded on"/"Recorded in"/ is also supported; the format
+of the date recognized by ID3v2::year(), or just a date field without a prefix.
 
 =cut
 
 sub return_parsed {
     my ($self,$what) = @_;
     if (defined $what) {
+	return $self->{parsed}{a_in_title}  if $what =~/^artist_collection/i;
+	return $self->{parsed}{t_in_track}  if $what =~/^title_track/i;
+	return $self->{parsed}{extt}  if $what =~/^comment_track/i;
+	return $self->{parsed}{extd}  if $what =~/^comment_collection/i;
 	return $self->{parsed}{album}  if $what =~/^al/i;
 	return $self->{parsed}{artist} if $what =~/^a/i;
 	return $self->{parsed}{track}  if $what =~/^tr/i;
@@ -123,9 +142,10 @@ sub parse_lines {
     my ($self) = @_;
     return if $self->{fields};
     for my $l (@{$self->{data}}) {
-	next unless $l =~ /^\s*(\w+)\s*=\s*(.*)/;
-	$self->{fields}{$1} = "" unless exists $self->{fields}{$1};
-	$self->{fields}{$1} .= $2;
+	next unless $l =~ /^\s*(\w+)\s*=(\s*(.*))/;
+	my $app = $2;
+	$self->{fields}{$1} = "", $app = $3 unless exists $self->{fields}{$1};
+	$self->{fields}{$1} .= $app;
 	$self->{last} = $1 if $1 =~ /\d+$/;
     }    
     s/\\([nt\\])/$r{$1}/g for values %{$self->{fields}};
@@ -142,15 +162,41 @@ sub parse {
 	my $t = $track - 1;
 	($t2, $c2) = map $self->{fields}{$_}, "TTITLE$t", "EXTT$t";
     }
-    my ($a, $t, $aa, $tt);
+    my ($a, $t, $aa, $tt, $a_in_title, $t_in_track);
     ($a, $t) = split /\s+\/\s+/, $t1, 2 if defined $t1;
     ($a, $t) = ($t, $a) unless defined $t;
     ($aa, $tt) = split /\s+\/\s+/, $t2, 2 if defined $t2;
     ($aa, $tt) = ($tt, $aa) unless defined $tt;
-    $aa = $a unless defined $aa and length $aa;
+    undef $a if defined $a and $a =~ 
+	/^\s*(<<\s*)?(Various Artists|compilation disc)\s*(>>\s*)?$/i;
     undef $aa if defined $aa and $aa =~ 
 	/^\s*(<<\s*)?(Various Artists|compilation disc)\s*(>>\s*)?$/i;
+    $a_in_title = $a if defined $a and length $a and defined $aa and length $aa;
+    $aa = $a unless defined $aa and length $aa;
+    $t_in_track = $tt;
     $tt = $t unless defined $tt and length $tt;
+
+    my ($y, $cat) = ($self->{fields}{DYEAR}, $self->{fields}{DGENRE});
+    for my $f ($c2, $c1) {
+      if (defined $f and length $f) { # Process old style declarations
+	while ($f =~ s/^\s*((YEAR|ID3Y)|ID3G)\b:?\s*(\d+)\b\s*(([;.,]|\s-\s)\s*)?//i
+	       || $f =~ s/(?:\s*(?:[;.,]|\s-\s))?\s*\b((YEAR|ID3Y)|ID3G)\b:?\s*(\d+)\s*([;.,]\s*)?$//i) {
+	    $y = $3 if $2 and not $y;
+	    $cat = $3 if not $2 and not $cat;
+	}
+	if ($f =~ s{((^|[;,.]|\s+-\s)\s*(Recorded(\s+[io]n)?(\s*:)?)?\s*(\d{4}(-[-\d\/,]+)?)\b\s*((?:[;.,]|\s-\s|$)\s*)?)}{
+		    (($self->{parent}->get_config('comment_remove_date'))->[0]
+		      ? '' : $1) . ($2 && $8 ? $8 : '')
+		   }eim ) {
+	    # Overwrite the disk year for longer forms
+	    $y = $6 if $3 or $7 or not $y or $c2 and $f eq $c2;
+	}
+	$f =~ s/^\s+//;
+	$f =~ s/\s+$//;
+	undef $f unless length $f;
+      }
+    }
+    my ($cc1, $cc2) = ($c1, $c2);
     if (defined $c2 and length $c2) { # Merge unless one is truncation of another
 	if ( defined $c1 and length $c1
 	     and $c1 ne substr $c2, 0, length $c1
@@ -161,9 +207,14 @@ sub parse {
 	    $c1 = $c2;
 	}
     }
-    @parsed{ qw( title artist album year comment track genre) } =
-	($tt, $aa, $t, $self->{fields}{DYEAR}, $c1, $track,
-	 $self->{fields}{DGENRE});
+    if ($cat =~ /^\d+$/) {
+	require MP3::Tag::ID3v1;
+	$cat = $MP3::Tag::ID3v1::winamp_genres[$cat] if $cat < scalar @MP3::Tag::ID3v1::winamp_genres;
+    }
+
+    @parsed{ qw( title artist album year comment track genre
+		 a_in_title t_in_track extt extd) } =
+	($tt, $aa, $t, $y, $c1, $track, $cat, $a_in_title, $t_in_track, $cc2, $cc1);
     $self->{parsed} = \%parsed;
     $self->return_parsed($what);
 }

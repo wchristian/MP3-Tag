@@ -1,3 +1,53 @@
+Release Name: 0.91
+=======================
+
+CDDB_File was removing whitespace on the boundary of continuation fields.
+
+get_user() calls ParseData->parse() to populate the userdata
+
+if $ENV{MP3TAG_TEST_WEAKEN}, will not have a workaround against broken weakrefs
+	(currently tests fail!)
+
+New %-escapes v L r q Q S m s C p o u (require MP3::Info module).
+
+New methods mpeg_version() mpeg_layer() mpeg_layer_roman() is_stereo()
+is_vbr() bitrate_kbps() frequency_Hz() frequency_kHz() size_bytes()
+total_secs() total_secs_int() total_mins() leftover_secs()
+leftover_msec() time_mm_ss() is_copyrighted() is_copyrighted_YN()
+frames_padded() frames_padded_YN() channel_mode_int() frames()
+frame_len() vbr_scale() (require MP3::Info module).
+
+The year() method of ID3v2 takes/returns timestamps in human-readable form;
+parse() recognizes the same formats for %y if option year_is_timestamp is TRUE
+(default).
+
+New option 'intact' to get_frame() of ID3v2.
+
+Support YEAR, ID3Y, ID3G in EXTD, EXTT* fields of CDDB_File.  Support also
+an alternative syntax "Recorded"/"Recorded on"/"Recorded in"/ with the format
+of the date recognized by ID3v2::year(), or just a date field without a prefix.
+The declarations of the former form are stripped from the returned comment.
+
+New fields artist_collection, title_track, comment_collection, comment_track
+in CDDB_File and corresponding accessor methods in MP3::Tag, and corresponding
+escapes aC, tT, cC, cT for interpolate().
+
+New configuration variables 'year_is_timestamp', 'comment_remove_date',
+'translate_*' (for different values of *).
+
+New handler module LastResort; currently it uses artist_collection() as comment
+if comment is not otherwise defined.
+
+New example scripts audio_rename and mod/Music_Translate_Fields.pm.
+
+The example script mp3info2 will use Music_Translate_Fields.pm (if found)
+to postprocess the resulting tag fields via translate_*() methods.
+
+Do not load Compress::Zlib unless when processing compressed data.
+
+Release Name: 0.9
+=======================
+
 Revision history for Perl modules MP3::Tag, MP3::Tag::ID3v1, MP3::Tag::ID3v2, MP3::Tag::File,
              and for Perl program tk-tag
 

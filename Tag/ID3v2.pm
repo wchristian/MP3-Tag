@@ -8,11 +8,11 @@ package MP3::Tag::ID3v2;
 
 use strict;
 use File::Basename;
-use Compress::Zlib;
+# use Compress::Zlib;
 
 use vars qw /%format %long_names %res_inp @supported_majors %v2names_to_v3 $VERSION @ISA/;
 
-$VERSION="0.80";
+$VERSION="0.91";
 @ISA = 'MP3::Tag::__hasparent';
 
 # ignore different $\ settings, otherwise tags may not be written correctly
@@ -260,9 +260,12 @@ If the name starts with a underscore (as eg '_code'), the data is probably
 binary data and not printable. If the name starts without an underscore,
 it should be a text string and printable.
 
-If there exists a second parameter 'raw', the whole frame data is returned,
-but not the frame header. If the data was stored compressed, it is also in
-raw mode uncompressed before it is returned. Then $info contains a string
+If the second parameter 'raw' is given, the whole frame data is returned,
+but not the frame header.  If the second parameter is 'intact', no mangling
+of embedded C<"\0"> and trailing spaces is performed.
+
+If the data was stored compressed, it is
+uncompressed before it is returned (even in raw mode). Then $info contains a string
 with all data (which might be binary), and $name the long frame name.
 
 See also L<MP3::Tag::ID3v2-Data> for a list of all supported frames, and
@@ -303,19 +306,22 @@ sub get_frame {
 
     if ($frame->{flags}->{compression}) {
 	my $usize=unpack("N", $result);
-	$result = uncompress(substr ($result, 4));
+	require Compress::Zlib;
+	$result = Compress::Zlib::uncompress(substr ($result, 4));
 	warn "$fname: Wrong size of uncompressed data\n" if $usize=!length($result);
     }
 
-    if (defined $raw) {
+    if (defined $raw and $raw eq 'raw') {
       return ($result, $long_names{$fname}, @extra) if (wantarray);
       return $result;
     }
 
     my $format = get_format($fname);
     if (defined $format) {
+      $format = [map +{%$_}, @$format], $format->[-1]{data} = 1
+	if defined $raw and $raw eq 'intact';
       $result = extract_data($result, $format);
-      if (scalar keys %$result ==1 && exists $result->{Text}) {
+      if (scalar keys %$result == 1 && exists $result->{Text}) {
 	$result= $result->{Text};
       }
     }
@@ -1008,6 +1014,32 @@ Returns the year (TYER/TDRC) from the tag.
 Sets TYER and TDRC frames if given the optional arguments @new_year.  If this
 is an empty string, the frame is removed.
 
+The format is similar to timestamps of IDv2.4.0, but ranges can be separated
+by C<-> or C<-->, and non-contiguous dates are separated by C<,> (comma).  If
+periods need to be specified via duration, then one needs to use the ISO 8601
+C</>-notation  (e.g., see
+
+  http://www.mcs.vuw.ac.nz/technical/software/SGML/doc/iso8601/ISO8601.html
+
+); the C<duration/end_timestamp> is not supported.
+
+On output, ranges of timestamps are converted to C<-> or C<--> separated
+format depending on whether the timestamps are years, or have additional
+fields.
+
+If configuration variable C<year_is_timestamp> is false, the return value
+is always the year only (of the first timestamp of a composite timestamp).
+
+Recall that ID3v2.4.0 timestamp has format yyyy-MM-ddTHH:mm:ss (year, "-",
+month, "-", day, "T", hour (out of
+24), ":", minutes, ":", seconds), but the precision may be reduced by
+removing as many time indicators as wanted. Hence valid timestamps
+are
+yyyy, yyyy-MM, yyyy-MM-dd, yyyy-MM-ddTHH, yyyy-MM-ddTHH:mm and
+yyyy-MM-ddTHH:mm:ss. All time stamps are UTC. For durations, use
+the slash character as described in 8601, and for multiple noncontiguous
+dates, use multiple strings, if allowed by the frame definition.
+
 =cut
 
 sub year {
@@ -1016,13 +1048,24 @@ sub year {
 	$self->remove_frame('TYER') if defined $self->get_frame( "TYER");
 	$self->remove_frame('TDRC') if defined $self->get_frame( "TDRC");
 	return if @_ == 1 and $_[0] eq '';
-	$self->add_frame('TYER', @_);	# Obsolete
-	return $self->add_frame('TDRC', @_);	# new; allows YYYY-MM-etc as well
+	my @args = @_;
+	$args[-1] =~ s/^(\d{4}\b).*/$1/;
+	$self->add_frame('TYER', @args);	# Obsolete
+	@args = @_;
+	$args[-1] =~ s/-(-|(?=\d{4}\b))/\//g;	# ranges are /-separated
+	$args[-1] =~ s/,(?=\d{4}\b)/\0/g;	# dates are \0-separated
+	$args[-1] =~ s#([-/T:])(?=\d(\b|T))#${1}0#g;	# %02d-format
+	return $self->add_frame('TDRC', @args);	# new; allows YYYY-MM-etc as well
     }
     my $y;
-    ($y) = $self->get_frame( "TYER") and return $y;
-    ($y) = $self->get_frame( "TDRC") or return;
-    return substr $y, 0, 4;
+    ($y) = $self->get_frame( "TDRC", 'intact')
+	or ($y) = $self->get_frame( "TYER") or return;
+    return substr $y, 0, 4 unless ($self->get_config('year_is_timestamp'))->[0];
+    # Convert to human-readable form
+    $y =~ s/\0/,/g;
+    my $sep = ($y =~ /-/) ? '--' : '-';
+    $y =~ s#/(?=\d)#$sep#g;
+    return $y;
 }
 
 =pod
@@ -1751,6 +1794,7 @@ BEGIN {
 		   T    => [$encoding, $text_enc],
 		   TCON => [$encoding, {%$text_enc, func=>\&TCON, re2=>{'\(RX\)'=>'Remix', '\(CR\)'=>'Cover'}}], 
 		   TCOP => [$encoding, {%$text_enc, re2 => {'^'=>'(C) '}}],
+		   # TDRC => [$encoding, $text_enc, data => 1],
 		   TFLT => [$encoding, {%$text_enc, func=>\&TFLT}],
 		   TIPL => [{v3name => "IPLS"}, $encoding, $text_enc],
 		   TMCL => [{v3name => "IPLS"}, $encoding, $text_enc],

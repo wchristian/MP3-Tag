@@ -59,6 +59,7 @@ ok($v1 && $v1->write_tag,"Writing ID3v1");
 ok($v2 && $v2->add_frame("TLAN","ENG"),"Creating new ID3v2");
 ok($v2 && $v2->write_tag,"Writing ID3v2");
 ok($v2 && $v2->add_frame("TLAN","GER"),"Changing ID3v2");
+ok($v2 && $v2->year('1848-9,1864-1872'),"Writing ID3v2 complex timestamp");
 ok($v2 && $v2->write_tag,"Writing ID3v2");
 
 $mp3=$v1=$v2=undef;			# Close the file...
@@ -86,6 +87,10 @@ ok($v2 && (@f = $v2->get_frames("TLAN")) && @f == 3 && "@f[1,2]" eq "ENG GER", "
 
 #test 18 - comment
 ok($v2 && !defined $v2->comment(), "Checking no comment");
+
+# year
+ok($v2 && (@f = $v2->get_frames("TDRC", 'intact')) && @f == 2 && $f[-1] eq "1848-09\0001864/1872", "Checking timestamp(s) in ID3v2");
+ok($v2 && ($y = $v2->year) && $y eq "1848-09,1864--1872", "Checking ID3v2 year");
 
 ok($v2 && $v2->add_frame("COMM", "ENG", '', 'Testing...'), "Changing ID3v2 ''-comment");
 ok($v2 && $v2->write_tag,"Writing ID3v2");
@@ -175,7 +180,38 @@ ok($mp3->filename_nodir eq "test2.mp3", "Checking filename method:");
 ok($mp3 && $mp3->interpolate("%A.%e") eq $mp3->interpolate("%F"), "interpolate %A");
 
 # Check CDDB_File...
-ok(MP3::Tag->config('cddb_files', qw(cddb.tmp1 cddb.tmp cddb.tmp2)), "Configuring list of cddb_files");
+ok(MP3::Tag->config('cddb_files', qw(cddb.tm1 cddb.tm cddb.tm2)), "Configuring list of cddb_files");
+
+open NH, '>audio07.mp3' or warn;
+close NH;
+$mp3 = MP3::Tag->new("./audio07.mp3");
+ok($mp3 && $mp3->title eq 'Makrokosmos III - I. Nocturnal Sounds (The Awakening)', "Title via CDDB_File");
+ok($mp3 && $mp3->artist eq 'Crumb Piece', "Artist via CDDB_File");
+ok($mp3 && $mp3->album eq 'Ancient Voices', "Album via CDDB_File");
+ok($mp3 && $mp3->year eq '1234', "Year via CDDB_File");
+ok($mp3 && $mp3->comment eq 'comment7; Fake entry', "Comment via CDDB_File");
+# print STDERR "# Genre=", $mp3->genre, "\n";
+ok($mp3 && $mp3->genre eq 'Vocal', "Genre via CDDB_File");
+ok($mp3 && $mp3->track eq '7', "Track no with CDDB_File");
+ok($mp3 && (not defined $mp3->artist_collection), "artist_collection");
+
+open NH, '>audio08.mp3' or warn;
+close NH;
+$mp3 = MP3::Tag->new("./audio08.mp3");
+ok($mp3 && $mp3->year eq '2001-10-23--30,2002-02-28', "Year via CDDB_File");
+ok($mp3 && $mp3->comment_collection eq 'Fake entry', "comment_collection");
+# print STDERR "# cT=", $mp3->comment_track, "\n";
+ok($mp3 && $mp3->comment_track eq 'comment8; Recorded on 2001-10-23--30,2002-02-28', "comment_track");
+ok($mp3 && $mp3->artist_collection eq 'Crumb Piece', "artist_collection");
+ok($mp3 && $mp3->artist eq 'Piece of Crumb', "artist");
+ok($mp3 && $mp3->interpolate('%{aC}') eq 'Crumb Piece', "artist_collection via %{aC}");
+
+ok(MP3::Tag->config('comment_remove_date', 1), "Configuring comment_remove_date");
+$mp3 = MP3::Tag->new("./audio08.mp3");
+# print STDERR "# cT=", $mp3->comment_track, "\n";
+ok($mp3 && $mp3->comment_track eq 'comment8', "comment_track with removal");
+
+ok(MP3::Tag->config('cddb_files', qw(cddb.tmp1 cddb.tmp cddb.tmp2)), "Configuring2 list of cddb_files");
 
 open NH, '>audio07.mp3' or warn;
 close NH;
@@ -187,6 +223,7 @@ ok($mp3 && $mp3->year eq '1234', "Year via CDDB_File");
 ok($mp3 && $mp3->comment eq 'comment7; Fake entry', "Comment via CDDB_File");
 ok($mp3 && $mp3->genre eq 'A special genre', "Genre via CDDB_File");
 ok($mp3 && $mp3->track eq '7', "Track no with CDDB_File");
+
 
 open NH, '>audio_07.mp3' or warn;
 close NH;
