@@ -1,3 +1,40 @@
+Connect parts of comment by \n if \n is already present there.
+
+`Recorded: 1980,1985,1992' was not recognized.
+
+Allow date only at start/end of the comment.
+
+Release Name: 0.93
+=======================
+
+More robust processing of "Recorded..." in CDDB_File.
+
+Better error message when parse expression has some `=' omitted.
+
+When parsing with nothing to set, would emit "Unsupported reg..." (regmatch
+would return 1 elt if no capturing parens present).
+
+When rewriting id3v2 tag, protect against $\ being set.
+
+Move test.pl to t/mp3tags.t, add t/set_v2.t
+
+Allow arbitrary escapes of the form %{ABCD} or %{ABCD03} in the method parse()
+etc; here ABCD is a 4-letter word.
+
+New config parameter id3v2_frame_empty_ok.
+
+It is possible to set individual id3v2 frames via ParseData; use %{TIT1} or
+some such.  Setting to an empty string deletes the frame if config
+parameter id3v2_frame_empty_ok is true.
+
+Uses TCOM or TPE3 to find "artist" ($mp3->artist) too.
+
+New option -R (recurse into directories) for example scripts.
+
+New example script type_mp3_dir to produce a TeX file with contents of
+directories.  (Put files `.content_comment' into a directory to include comments
+specific for the directory layout.)
+
 Release Name: 0.92
 =======================
 

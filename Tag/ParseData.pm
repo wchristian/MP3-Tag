@@ -3,7 +3,7 @@ package MP3::Tag::ParseData;
 use strict;
 use vars qw /$VERSION @ISA/;
 
-$VERSION="0.01";
+$VERSION="0.02";
 @ISA = 'MP3::Tag::__hasparent';
 
 =pod
@@ -99,6 +99,10 @@ to force particular values for parts of the MP3 tag.
 
 The usual methods C<artist>, C<title>, C<album>, C<comment>, C<year>, C<track>,
 C<year> can be used to access the results of the parse.
+
+It is possible to set individual id3v2 frames; use %{TIT1} or
+some such.  Setting to an empty string deletes the frame if config
+parameter id3v2_frame_empty_ok is true.
 
 =cut
 
@@ -196,7 +200,17 @@ sub parse {
 	# warn "Failure: [@$d]\n" unless $res;
 	# Set user-scratch space data immediately
 	for my $k (keys %$res) {
-	    $self->{parent}->set_user($1, delete $res->{$k}) if $k =~ /^U(\d+)$/
+	  if ($k =~ /^U(\d{1,2})$/) {
+	    $self->{parent}->set_user($1, delete $res->{$k})
+	  } elsif ($k =~ /^\w{4}(\d{2,})?$/ and $k ne 'year') {
+	    if (length $res->{$k}
+		or $self->get_config('id3v2_frame_empty_ok')->[0]) {
+	      $self->{parent}->set_id3v2_frame($k, delete $res->{$k})
+	    } else {
+	      delete $res->{$k};
+	      $self->{parent}->set_id3v2_frame($k);
+	    }
+	  }
 	}
 	# later ones overwrite earlier
 	%res = (%res, %$res) if $res;

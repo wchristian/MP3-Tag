@@ -1,4 +1,3 @@
-extproc perl -Sw
 #!/usr/bin/perl -w
 
 use FindBin;
@@ -11,7 +10,7 @@ use strict;
 BEGIN { eval 'require Music_Translate_Fields' }
 
 my %opt;
-getopts('c:a:t:l:n:g:y:uDp:C:P:E:G@', \%opt);
+getopts('c:a:t:l:n:g:y:uDp:C:P:E:G@R', \%opt);
 exec 'perldoc', '-F', $0 unless @ARGV;
 
 # keys of %opt to the MP3::Tag keywords:
@@ -67,13 +66,8 @@ if (defined $opt{P}) {
 # E.g., to make Inf overwrite existing title, do 
 # mp3info2.pl -C title,Inf,ID3v2,ID3v1,filename -u *.mp3
 
-my $f;
-my @f = @ARGV;
-if ($opt{G}) {
-  require File::Glob;			# "usual" glob() fails on spaces...
-  @f = map File::Glob::bsd_glob($_), @f;
-}
-for $f (@f) {
+sub process_file ($) {
+    my $f = shift;
     my $mp3=MP3::Tag->new($f);	# BUGXXXX Can't merge into if(): extra refcount
     if ($mp3) {
 	print $mp3->interpolate(<<EOC) unless exists $opt{p};
@@ -157,6 +151,22 @@ EOC
     }
 }
 
+my @f = @ARGV;
+if ($opt{G}) {
+  require File::Glob;			# "usual" glob() fails on spaces...
+  @f = map File::Glob::bsd_glob($_), @f;
+}
+if ($opt{R}) {
+  require File::Find;
+  File::Find::find({wanted => sub {next unless -f and /\.mp3$/i; process_file $_},
+		    no_chdir => 1}, @f);
+} else {
+  my $f;
+  for $f (@f) {
+    process_file $f;
+  }
+}
+
 =head1 NAME
 
 mp3info2 - get/set MP3 tags; uses L<MP3::Tag> to get default values.
@@ -169,8 +179,8 @@ mp3info2 - get/set MP3 tags; uses L<MP3::Tag> to get default values.
   # In addition, set the year field to 1981
   mp3info2 -y 1981 *.mp3
 
-  # Same without printout of information
-  mp3info2 -p "" -y 1981 *.mp3
+  # Same without printout of information, recursively in the current directory
+  mp3info2 -R -p "" -y 1981 .
 
   # Do not deduce any field, print the info from the tags only
   mp3info2 -C autoinfo=ID3v2,ID3v1 *.mp3
@@ -253,7 +263,8 @@ L<MP3::Tag::ParseData> (if present in the chain of heuristics).
 
 If option C<-G> is specified, the file names on the command line are considered
 as glob patterns.  This may be useful if the maximal command-line length is too
-low).
+low).  With the option C<-R> arguments can be directories, which are searched
+recursively for F<*.mp3> files to process.
 
 The option C<-E> should contain the letters of the options where
 C<\\, \n, \t> are interpolated (default: C<p>).  If the option C<-@> is given,
@@ -360,11 +371,23 @@ removes spurious punctuation at the end of the title.
   mp3info2 -u -P 'iz;%c;with piano%c' *.mp3
   mp3info2 -C autoinfo=ParseData -a "A. U. Thor" *.mp3
 
+Here is a typical task setting "advanced" id3v2 frames: composer (C<TCOM>), orchestra (C<TPE2>),
+conductor (C<TPE3>).  We assume a directory tree which contains MP3 files
+tagged with the following conventions: C<artist> is actually a composer;
+C<comment> is of one of two forms:
+
+  Performers; Orchestra; Conductor
+  Orchestra; Conductor
+
+To set the specific MP3 frames, use
+
+  mp3info2 -P "mi/@a/@{TCOM}///mi/@c/@{U0}; @{TPE2}; @{TPE3}/@{TPE2}; @{TPE3}" -R .
+
 Finish by a very simple example: all that the pattern
 
   -P 'i;%t;%t'
 
-does is removal of trailing and leading blanks from the title (deduced by
+does is removal of trailing and leading blanks from the title (which is deduced by
 other means).
 
 =head1 AUTHOR

@@ -5,7 +5,7 @@ use File::Basename;
 use File::Spec;
 use vars qw /$VERSION @ISA/;
 
-$VERSION="0.02";
+$VERSION="0.03";
 @ISA = 'MP3::Tag::__hasparent';
 
 =pod
@@ -184,10 +184,19 @@ sub parse {
 	    $y = $3 if $2 and not $y;
 	    $cat = $3 if not $2 and not $cat;
 	}
-	if ($f =~ s{((^|[;,.]|\s+-\s)\s*(Recorded(\s+[io]n)?(\s*:)?)?\s*(\d{4}(-[-\d\/,]+)?)\b\s*((?:[;.,]|\s-\s|$)\s*)?)}{
-		    (($self->{parent}->get_config('comment_remove_date'))->[0]
+	if ($f =~ s{
+		     ((^|[;,.]|\s+-\s) # 1,2
+		      \s*
+		      (Recorded (\s+[io]n)? \s* (:\s*)? )? # 3, 4, 5
+		      (\d{4}([-,][-\d\/,]+)?) # 6, 7
+		      \b \s* (?: [.;] \s* )? 
+		      ((?:[;.,]|\s-\s|$)\s*)) # 8
+		   }
+	           {
+		    ((($self->{parent}->get_config('comment_remove_date'))->[0]
+		       and not ($2 and $8))
 		      ? '' : $1) . ($2 && $8 ? $8 : '')
-		   }eim ) {
+		   }xeim and not ($2 and $8)) {
 	    # Overwrite the disk year for longer forms
 	    $y = $6 if $3 or $7 or not $y or $c2 and $f eq $c2;
 	}
@@ -201,8 +210,9 @@ sub parse {
 	if ( defined $c1 and length $c1
 	     and $c1 ne substr $c2, 0, length $c1
 	     and $c1 ne substr $c2, -length $c1 ) {
-	    $c2 =~ s/[.,:;]$//;
-	    $c1 = "$c2; $c1";
+	    $c2 =~ s/\s*[.,:;]$//;
+	    my $sep = (("$c1$c2" =~ /\n/) ? "\n" : '; ');
+	    $c1 = "$c2$sep$c1";
 	} else {
 	    $c1 = $c2;
 	}

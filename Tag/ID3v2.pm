@@ -473,6 +473,7 @@ sub insert_space {
 	binmode NEW;
 	$pos_old=0;
 	$mp3obj->seek(0,0);
+	local $\ = '';
 
 	foreach my $ins (@$insert) {
 		if ($pos_old < $ins->[0]) {
@@ -643,6 +644,7 @@ sub remove_tag {
     my $mp3obj = $self->{mp3};  
     my $tempfile = dirname($mp3obj->{filename}) . "/TMPxx";
     my $count = 0;
+    local $\ = '';
     while (-e $tempfile . $count . ".tmp") {
 	if ($count++ > 999) {
 	    warn "Problems with tempfile\n";
@@ -1093,8 +1095,13 @@ sub track {
 
 =item artist( [ $new_artist ] )
 
-Returns the artist name (TPE1 (or TPE2 if TPE1 does not exist, of TCOM
-if neither TPE1 nor TPE2 exist)) from the tag.
+Returns the artist name; it is the first existing frame from the list of
+
+  TPE1      Lead artist/Lead performer/Soloist/Performing group
+  TPE2      Band/Orchestra/Accompaniment
+  TCOM      Composer
+  TPE3      Conductor
+  TEXT      Lyricist/Text writer
 
 Sets TPE1 frame if given the optional arguments @new_artist.  If this is an
 empty string, the frame is removed.
@@ -1112,6 +1119,8 @@ sub artist {
     ($a) = $self->get_frame("TPE1") and return $a;
     ($a) = $self->get_frame("TPE2") and return $a;
     ($a) = $self->get_frame("TCOM") and return $a;
+    ($a) = $self->get_frame("TPE3") and return $a;
+    ($a) = $self->get_frame("TEXT") and return $a;
     return;
 }
 

@@ -23,8 +23,10 @@ examples/mp3info.pl
 examples/mp3info2.pl
 examples/tagged.pl
 examples/tagit.pl
+examples/type_mp3_dir.pl
 test.mp3
-test.pl
+t/mp3tag.t
+t/set_v2.t
 tk-tag/README
 tk-tag/tk-tag.pl
 META.yml                                 Module meta-data (added by MakeMaker)

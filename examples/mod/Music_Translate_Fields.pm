@@ -27,7 +27,12 @@ sub translate_artist ($$) {
 my %aliases = (	Rachmaninov	=>	[qw(Rachmaninoff Rahmaninov)],
 		Tchaikovskiy 	=>	'Chaikovskiy',
 		'Mendelssohn-Bartholdy'	=> 'Mendelssohn',
-		Shostakovich	=>	'SCHOSTAKOVICH',
+		Shostakovich	=>	['SCHOSTAKOVICH', 'Schostakowitsch',
+					 'Shostakovitch'],
+		Schnittke	=>	'Shnitke',
+		Prokofiev	=>	'Prokofev',
+		Stravinsky	=>	'Stravinskiy',
+		Scriabin	=>	'Skryabin',
 	      );
 
 for (<DATA>) {
@@ -59,9 +64,10 @@ for (<DATA>) {
 }
 
 for ('Frederic Chopin', 'Fryderyk Chopin', 'Joseph Haydn', 'J Haydn',
-     'Sergei Prokofiev', 'Antonín Dvorák', 'Peter Tchaikovsky',
-     'Sergey Rahmaninov', 'Piotyr Ilyich Tchaikovsky',
-     'DIMITRI SCHOSTAKOVICH') {
+     'Sergei Prokofiev', 'Serge Prokofiev', 'Antonin Dvorák', 'Peter Tchaikovsky',
+     'Sergei Rahmaninov', 'Piotyr Ilyich Tchaikovsky',
+     'Aleksandr Skryabin', 'Aleksandr Mosolov',
+     'DIMITRI SCHOSTAKOVICH', 'Dmitri Schostakowitsch', 'Dmitri Shostakovich') {
   my ($last) = (/(\w+)$/) or warn, die;
   $tr{lc $_} = $tr{lc $last};
 }
@@ -71,6 +77,12 @@ for ('Frederic Chopin', 'Fryderyk Chopin', 'Joseph Haydn', 'J Haydn',
 # Old misspellings
 $tr{lc 'Petr Ilyich Chaikovskiy (1840-1893)'} = $tr{lc 'Tchaikovsky'};
 $tr{lc 'Franz Josef Haydn (1732-1809)'} = $tr{lc 'Haydn'};
+$tr{lc 'Félix Mendelssohn (1809-1847)'} = $tr{lc 'Mendelssohn-Bartholdy'};
+$tr{lc 'Sergei Rachmaninov (1873-1943)'} = $tr{lc 'Rachmaninov'};
+$tr{lc 'Wolfgang Amadei Mozart (1756-1791)'} = $tr{lc 'Mozart'};
+$tr{lc 'Eduard Grieg (1843-1907)'} = $tr{lc 'Grieg'};
+$tr{lc 'Antonin Dvorák (1841-1904)'} = $tr{lc 'Dvorák'};
+$tr{lc 'Antonin Dvorak (1841-1904)'} = $tr{lc 'Dvorák'};
 
 1;
 __DATA__
@@ -81,7 +93,7 @@ Franz Schubert (1797-1828)
 Frédéric Chopin (1810-1849)
 Petr Ilyich Tchaikovsky (1840-1893)
 Robert Schumann (1810-1856)
-Sergei Rachmaninov (1873-1943)
+Sergey Rachmaninov (1873-1943)
 Alfredo Catalani (1854-1893)
 Amicare Ponchielli (1834-1886)
 Gaetano Donizetti (1797-1848)
@@ -98,13 +110,14 @@ Riccardo Zandonai (1883-1944)
 Richard Wagner (1813-1883)
 Ruggiero Leoncavallo (1858-1919)
 Umberto Giordano (1867-1948)
-Wolfgang Amadei Mozart (1756-1791)
-Eduard Grieg (1843-1907)
+Wolfgang Amadeus Mozart (1756-1791)
+Edvard Grieg (1843-1907)
 Johannes Brahms (1833-1897)
 Dmitriy Shostakovich (1906-1975)
 Franz Joseph Haydn (1732-1809)
 Antonio Vivaldi (1678-1741)
 Claude Debussy (1862-1918)
+Antonín Dvorák (1841-1904)
 Antonin Dvorák (1841-1904)
 Antonin Dvorak (1841-1904)
 Sergey Prokofiev (1891-1953)
@@ -137,6 +150,40 @@ Georges Bizet (1838-1875)
 Alexander Borodin (1833-1887)
 Alexander Glazunov (1865-1936)
 Gabriel Fauré (1845-1924)
+Béla Bartók (1881-1945)
+Camille Saint-Saens (1835-1921)
+Benjamin Godard (1849-1895)
+Ernest Chausson (1855-1899)
+Igor Stravinsky (1882-1971)
+Luigi Boccherini (1743-1805)
+Richard Strauss (1864-1949)
+Paul Hindemith (1895-1963)
+Hugo Wolf (1860-1903)
+Carl Loewe (1796-1869)
+Christoph Willibald von Gluck (1714-1787)
+Henry Purcell (1659-1695)
+Gustav Mahler (1860-1911)
+Michael Haydn (1737-1806)
+Marin Marais (1656-1728)
+Tomaso Albinoni (1671-1751)
+Johann Pachelbel (1653-1706)
+Jacques Offenbach (1819-1880)
+Bedrich Smetana (1824-1884)
+Frederick Delius (1862-1934)
+Emmanuel Chabrier (1841-1894)
+Carl Maria von Weber (1786-1826)
+Johann I Strauss (1804-1849)
+Johann II Strauss (1825-1899)
+Cesar Franck (1822-1890)
+Alexander Scriabin (1872-1915)
+
+Alexander Mosolov (1900-1973)
+Andrey Osypovich Sychra (1773-1850)
+Ignatz von Held
+Vasily Sergeevich Alferiev
+Vladimir Ivanovich Morkov (1801-1864)
+Mikhail Timofeevich Vysotsky (1791-1837)
+Nikolai Ivanovich Alexandrov (1818-1885/1886)
 
 Lina Bruna Rasa (1907-1984)
 Enrico Caruso (1873-1921)
@@ -149,8 +196,11 @@ Vladimir Horowitz (1903-1989)
 Vladimir Sofronitsky (1901-1961)
 Emil Gilels (1916-1985)
 Pablo Casals (1876-1973)
-Vladimir Sofronitsky (1901-1961)
 Artur Rubinstein (1887-1982)
+Jacqueline du Pré (1945-1987)
+Yehudi Menuhin (1916-1999)
+Kathleen Ferrier (1912-1953)
+Thomas Beecham (1879-1961)
 
 Ivan Krylov (1769-1844)
 Samuil Marshak (1887-1964)

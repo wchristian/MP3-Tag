@@ -48,9 +48,10 @@ use vars qw/$VERSION %config/;
 	    parse_join	=> ['; '],
 	    year_is_timestamp	=> [1],
 	    comment_remove_date	=> [0],
+	    id3v2_frame_empty_ok	=> [0],
 	  );
 
-$VERSION="0.92";
+$VERSION="0.93";
 
 =pod
 
@@ -326,7 +327,7 @@ it is taken.
 sub autoinfo() {
     my ($self, $from) = (shift, shift);
     my (@out, %out);
-    
+
     for my $elt ( qw( title track artist album comment year genre ) ) {
 	my $out = $self->$elt($from);
 	if (wantarray) {
@@ -552,6 +553,11 @@ Possible items are:
   even if it is human readable (e.g., C<Recorded on 2014-3-23>) if TRUE.
   Current default: FALSE.
 
+* id3v2_frame_empty_ok
+
+  When setting the individual id3v2 frames via ParseData, do not
+  remove the frames set to an empty string.  Default 0.
+
 * translate_*
 
   A subroutine used to munch a field C<*> (out of C<title track artist album comment year genre>)
@@ -607,13 +613,13 @@ sub get_config ($$) {
 
   $data = $mp3->get_user($n);	# n-th piece of user scratch space
 
-Queries an entry in a scratch array ($n=3 corresponds to C<%{u3}>).
+Queries an entry in a scratch array ($n=3 corresponds to C<%{U3}>).
 
 =item set_user
 
   $mp3->set_user($n, $data);	# n-th piece of user scratch space
 
-Sets an entry in a scratch array ($n=3 corresponds to C<%{u3}>).
+Sets an entry in a scratch array ($n=3 corresponds to C<%{U3}>).
 
 =cut
 
@@ -632,6 +638,27 @@ sub set_user ($$$) {
     my ($self, $item, $val) = @_;
     $self->{userdata} ||= [];
     $self->{userdata}[$item] = $val;
+}
+
+=item set_id3v2_frame
+
+  $mp3->set_id3v2_frame($name, $value1, $value2);
+
+When called with only $name as the argument, removes the specified
+frame (if it existed).  Otherwise sets the frame passing the specified
+values to the add_frame() function of MP3::Tag::ID3v2.
+
+=cut
+
+# With two elements, removes frame
+sub set_id3v2_frame ($$;@) {
+    my ($self, $item) = (shift, shift);
+    return if not @_ and not exists $self->{ID3v2};
+    $self->new_tag("ID3v2") unless exists $self->{ID3v2};
+    $self->{ID3v2}->remove_frame($item)
+      if defined $self->{ID3v2}->get_frame($item);
+    return unless @_;
+    return $self->{ID3v2}->add_frame($item, @_);
 }
 
 =item interpolate
@@ -874,8 +901,8 @@ and are case-insensitive if configuration variable C<parse_filename_ignore_case>
 is true (default);
 moreover, <%n>, <%y>, <%=n>, <%=y> will not match if the string-to-match
 is adjacent to a digit).  Returns false on failure, a hash reference with
-parsed fields otherwise; the escape C<%{UE<lt>numberE<gt>}> matches any string,
-and corresponds to the hash key C<UE<lt>numberU<gt>>.
+parsed fields otherwise.  The escapes C<%{UE<lt>numberE<gt>}> and escapes of the forms C<%{ABCD}>, C<%{ABCDE<lt>numberE<gt>}> match any string,
+and corresponds to the hash key inside braces; here C<ABCD> is a 4-letter word possibly followed by 2-digit number (as in names of ID3v2 tags).
 
   $res = $mp3->parse_rex(qr<^%a - %t\.\w{1,4}$>, $mp3->filename_nodir) or die;
   $author = $res->{author};
@@ -923,48 +950,52 @@ sub _rex_protect_filename {
 }
 
 sub _parse_rex_microinterpolate {	# $self->idem($code, $groups, $ecount)
-    my ($self, $code) = (shift, shift);
+    my ($self, $code, $groups) = (shift, shift, shift);
     return '%' if $code eq '%';
     # In these two, allow setting to '' too...
-    $_[0] .= $code, return '((?<!\d)\d{1,2}(?!\d)|\A\Z)' if $code eq 'n';
-    $_[0] .= $code, return '((?<!\d)[12]\d{3}(?:(?:--|[-:/T\0,])\d(?:|\d|\d\d\d))*(?!\d)|\A\Z)'
+    push(@$groups, $code), return '((?<!\d)\d{1,2}(?!\d)|\A\Z)' if $code eq 'n';
+    (push @$groups, $code), return '((?<!\d)[12]\d{3}(?:(?:--|[-:/T\0,])\d(?:|\d|\d\d\d))*(?!\d)|\A\Z)'
 	if $code eq 'y' and ($self->get_config('year_is_timestamp'))->[0];
-    $_[0] .= $code, return '((?<!\d)[12]\d{3}(?!\d)|\A\Z)'
+    (push @$groups, $code), return '((?<!\d)[12]\d{3}(?!\d)|\A\Z)'
 	if $code eq 'y';
-    $_[0] .= $code, return '(.*)' if $code =~ /^[talgc]$/;
-    $_[1]++, return $self->_rex_protect_filename($self->interpolate("%$1"), $1)
+    (push @$groups, $code), return '(.*)' if $code =~ /^[talgc]$/;
+    $_[0]++, return $self->_rex_protect_filename($self->interpolate("%$1"), $1)
 	if $code =~ /^=([ABDfFN]|{d\d+})$/;
-    $_[1]++, return quotemeta($self->interpolate("%$1"))
+    $_[0]++, return quotemeta($self->interpolate("%$1"))
 	if $code =~ /^=([talgceE]|{.*})$/;
-    $_[1]++, return '(?<!\d)0*' . quotemeta($self->track) . '(?!\d)'
+    $_[0]++, return '(?<!\d)0*' . quotemeta($self->track) . '(?!\d)'
 	if $code eq '=n';
-    $_[1]++, return '(?<!\d)' . quotemeta($self->year) . '(?!\d)'
+    $_[0]++, return '(?<!\d)' . quotemeta($self->year) . '(?!\d)'
 	if $code eq '=y';
-    $_[0] .= $1, return '(.*)' if $code =~ /^{(U\d+)}$/;
+    (push @$groups, $1), return '(.*)' if $code =~ /^{(U\d+|\w{4}(\d\d+)?)}$/;
     # What remains is extension
     my $e = $self->get_config('extension')->[0];
-    $_[0] .= $code, return "($e)" if $code eq 'E';
-    $_[0] .= $code, return "(?<=(?=(?:$e)\$)\\.)(.*)" if $code eq 'e';
+    (push @$groups, $code), return "($e)" if $code eq 'E';
+    (push @$groups, $code), return "(?<=(?=(?:$e)\$)\\.)(.*)" if $code eq 'e';
+    # Check whether '=' was omitted, as in %f
+    $code =~ /^=/ or
+      eval {my ($a, $b); $self->_parse_rex_microinterpolate("=$code", $a, $b)}
+	and die "escape `%$code' can't be parsed; did you forget to put `='?";
     die "unknown escape `%$code'";
 }
 
 sub parse_rex_prepare {
     my ($self, $pattern) = @_;
-    my ($codes, $exact) = ('', 0);
+    my ($codes, $exact) = ([], 0);
     my $o = $pattern;
-    $pattern =~ s<%(={(?:[^\\{}]|\\[\\{}])*}|{U\d+}|=?.)>
+    $pattern =~ s<%(=?{(?:[^\\{}]|\\[\\{}])*}|{U\d+}|=?.)>
 		 ( $self->_parse_rex_microinterpolate($1, $codes, $exact) )seg;
-    my @tags = map { $_ =~ /U\d+/ ? $_ : $trans{$_} } ($codes =~ /(U\d+|.)/g);
+    my @tags = map { length == 1 ? $trans{$_} : $_ } @$codes;
     return [$o, $pattern, \@tags, $exact];
 }
 
 sub parse_rex_match {	# pattern = [Original, Interpolated, Fields, NumExact]
     my ($self, $pattern, $data) = @_;
     return unless @{$pattern->[2]} or $pattern->[3];
-    my @vals = ($data =~ /$pattern->[1]/s) or return;
-    my $cv = @vals;
-    die "Unsupported regular expression `$pattern->[0]' (catching parens? Got $cv vals)"
-	unless @vals == @{$pattern->[2]};
+    my @vals = ($data =~ /$pattern->[1]()/s) or return;	# At least 1 group
+    my $cv = @vals - 1;
+    die "Unsupported regular expression `$pattern->[0]' (catching parens? Got $cv vals) (converted to `$pattern->[1]')"
+	unless $cv == @{$pattern->[2]};
     my ($c, %h) = 0;
     for my $k ( @{$pattern->[2]} ) {
 	$h{$k} ||= [];
@@ -986,7 +1017,7 @@ sub parse_rex {
 =item parse($pattern, $string)
 
 Parse $string according to the string $pattern with C<%>-escapes C<%%, %a, %t,
-%l, %y, %g, %c, %n, %e, %E>.  The meaning of escapes is the same as for L<interpolate>.
+%l, %y, %g, %c, %n, %e, %E>.  The meaning of escapes is the same as for L<interpolate>. See L<"parse_rex($pattern, $string)"> for more details.
 Returns false on failure, a hash reference with parsed fields otherwise.
 
   $res = $mp3->parse("%a - %t.mp3", $mp3->filename_nodir) or die;

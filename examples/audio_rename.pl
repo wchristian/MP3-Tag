@@ -1,10 +1,9 @@
-extproc perl -Sw
 #!/usr/bin/perl -w
 
+# Will rename .inf file too.
 $VERSION = 0.01;
 
-# Will rename .inf file too.
-
+use blib 'J:/test-programs-other/.cpan/tagged-CVS/work';
 use MP3::Tag;
 use Getopt::Std 'getopts';
 use File::Spec;
@@ -14,8 +13,8 @@ use strict;
 my %opt = (E => '');
 # WinCyrillic (win1251), short (CDFS), Keep non-filename chars, Dry run, Glob, 
 # path via pattern, |-separated list of associated extensions
-# (PEC@ as in mp3info2)
-getopts('csKDGp:e:P:E:C:@', \%opt);
+# (PEC@R as in mp3info2)
+getopts('csKDGp:e:P:E:C:@R', \%opt);
 
 # Interprete Escape sequences:
 my %r = ( 'n' => "\n", 't' => "\t", '\\' => "\\"  );
@@ -101,14 +100,14 @@ my ($extl_add, $e) = 0;
 for $e (@ext) {
     $extl_add = length $e if $extl_add < length $e;
 }
-my $f;
 my @f = @ARGV;
 if ($opt{G}) {
   require File::Glob;			# "usual" glob() fails on spaces...
   @f = map File::Glob::bsd_glob($_), @f;
 }
-FILELOOP:
-for $f (@f) {
+
+sub process_file ($) {
+    my $f = shift;
     print "File: $f\n";
     my $mp3=MP3::Tag->new($f);
     if ($mp3) {
@@ -125,7 +124,7 @@ for $f (@f) {
 	    my $comp = $comp[$i];
 	    my $ocomp = $comp;
 	    $comp = $mp3->interpolate($comp);
-	    warn("Component `$ocomp' interpolates to empty, skipping the file\n"), next FILELOOP
+	    warn("Component `$ocomp' interpolates to empty, skipping the file\n"), return
 		unless defined $comp and length $comp;
 	    unless ($ocomp =~ /%[fFDABN]/) {	# Already valid
 		$comp = win1251_to_volapuk($comp) if $opt{c};
@@ -173,6 +172,17 @@ for $f (@f) {
     } else {
 	print "Not found...\n";
     }
+}
+
+if ($opt{R}) {
+  require File::Find;
+  File::Find::find({wanted => sub {next unless -f and /\.mp3$/i; process_file $_},
+		    no_chdir => 1}, @f);
+} else {
+  my $f;
+  for $f (@f) {
+    process_file $f;
+  }
 }
 
 =head1 NAME

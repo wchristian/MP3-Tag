@@ -7,7 +7,7 @@
 # Change 1..1 below to 1..last_test_to_print .
 # (It may become useful if the test is moved to ./t subdirectory.)
 
-BEGIN { $| = 1; print "1..69\n"; }
+BEGIN { $| = 1; print "1..89\n"; }
 END {print "MP3::Tag not loaded :(\n" unless $loaded;}
 use MP3::Tag;
 $loaded = 1;
@@ -269,9 +269,14 @@ ok($mp3 && $i eq 'dir; audio_07', "multi-%c and %e via parse/interpolate");
 my @failed;
 @failed ? die "Tests @failed failed.\n" : print "All tests successful.\n";
 
-sub ok {
+sub ok_test {
   my ($result, $test) = @_;
   printf ("Test %2d %s %s", ++$count, $test, '.' x (45-length($test)));
   (push @failed, $count), print " not" unless $result;
   print " ok\n";
+}
+sub ok {
+  my ($result, $test) = @_;
+  (push @failed, $count), print "not " unless $result;
+  printf "ok %d # %s\n", ++$count, $test;
 }
