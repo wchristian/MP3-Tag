@@ -27,6 +27,9 @@ examples/type_mp3_dir.pl
 test.mp3
 t/mp3tag.t
 t/set_v2.t
+t/v2_comments.t
+t/update_tags.t
+t/parser.t
 tk-tag/README
 tk-tag/tk-tag.pl
 META.yml                                 Module meta-data (added by MakeMaker)

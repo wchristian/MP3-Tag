@@ -12,7 +12,7 @@ use File::Basename;
 
 use vars qw /%format %long_names %res_inp @supported_majors %v2names_to_v3 $VERSION @ISA/;
 
-$VERSION="0.91";
+$VERSION="0.94";
 @ISA = 'MP3::Tag::__hasparent';
 
 # ignore different $\ settings, otherwise tags may not be written correctly
@@ -321,8 +321,12 @@ sub get_frame {
       $format = [map +{%$_}, @$format], $format->[-1]{data} = 1
 	if defined $raw and $raw eq 'intact';
       $result = extract_data($result, $format);
-      if (scalar keys %$result == 1 && exists $result->{Text}) {
-	$result= $result->{Text};
+      if (scalar keys %$result == 1) {
+	if (exists $result->{Text}) {
+	  $result= $result->{Text};
+	} elsif (exists $result->{URL}) {
+	  $result= $result->{URL};
+	}
       }
     }
     if (wantarray) {
@@ -407,7 +411,7 @@ sub build_tag {
     for my $frameid (@frames) {
   	    my $frame = $self->{frames}->{$frameid};
 
-	    if ($frame->{major}!=3) {
+	    if ($frame->{major} < 3) {
 		    #try to convert to ID3v2.3 or
 		    warn "Can't convert $frameid to ID3v2.3\n";
 		    next if ($ignore_error);
@@ -562,8 +566,8 @@ If the tag is written successfully, 1 is returned.
 sub write_tag {
     my ($self,$ignore_error) = @_;
 
-    if ($self->{major}>3) {
-	    warn "Only writing of ID3v2.3 is supported. Cannot convert ID3v".
+    if ($self->{major}>4) {
+	    warn "Only writing of ID3v2.3 (and some tags of v2.4) is supported. Cannot convert ID3v".
 	      $self->{version}." to ID3v2.3 yet.\n";
 	    return undef;
     }
@@ -767,10 +771,13 @@ sub add_frame {
 
     #add frame to tag
     if (exists $self->{frames}->{$fname}) {
+        my ($c, $ID) = (1, $fname);
 	$fname .= '01';
 	while (exists $self->{frames}->{$fname}) {
-	    $fname++;
+	    $fname++, $c++;
 	}
+	++$self->{extra_frames}->{$ID}
+	  if $c > ($self->{extra_frames}->{$ID} || 0);
     }
     $self->{frames}->{$fname} = {flags=>check_flags(0), major=>3,
 				 data=>$datastring };
@@ -950,7 +957,7 @@ sub title {
 
 =item _comment([$language])
 
-Returns the file comment (COMM with an empty 'short') from the tag, or
+Returns the file comment (COMM with an empty 'Description') from the tag, or
 "Subtitle/Description refinement" (TIT3) frame (unless it is considered a part
 of the title).
 
@@ -963,7 +970,7 @@ sub _comment {
     my @info = get_frames($self, "COMM");
     shift @info;
     for my $comment (@info) {
-	next unless exists $comment->{short} and not length $comment->{short};
+	next unless exists $comment->{Description} and not length $comment->{Description};
 	next if defined $language and (not exists $comment->{Language}
 				       or lc $comment->{Language} ne $language);
 	return $comment->{Text};
@@ -975,9 +982,9 @@ sub _comment {
 =item comment()
 
    $val = $id3v2->comment();
-   $newframe = $id3v2->comment('Just a comment for freddy', 'eng', 'personal');
+   $newframe = $id3v2->comment('Just a comment for freddy', 'personal', 'eng');
 
-Returns the file comment (COMM frame with an empty 'short' field) from the
+Returns the file comment (COMM frame with an empty 'Description' field) from the
 tag, or "Subtitle/Description refinement" (TIT3) frame (unless it is considered
 a part of the title).
 
@@ -996,7 +1003,7 @@ sub comment {
     my $c = -1;
     for my $comment (@info) {
 	++$c;
-	next unless exists $comment->{short} and not length $comment->{short};
+	next unless exists $comment->{Description} and not length $comment->{Description};
 	next if defined $language and (not exists $comment->{Language}
 				       or lc $comment->{Language} ne lc $language);
 	$self->remove_frame($c ? sprintf 'COMM%02d', $c : 'COMM');
@@ -1007,6 +1014,120 @@ sub comment {
     $language = 'XXX' unless defined $language;
     $short = ''       unless defined $short;
     $self->add_frame('COMM', $language, $short, $comment);
+}
+
+=item frame_select($fname, $descrs, $languages [, $newtext])
+
+   # Select short-description='', prefere language 'eng', then 'rus', then
+   # first COMM frame, then any COMM frame
+   $val = $id3v2->frame_select('COMM', '', ['eng', 'rus', '#0', '']);
+   $new = $id3v2->frame_select('COMM', '', ['eng', 'rus', '#0'],
+			       'Comment with empty "Description" and "eng"');
+
+Returns the contents of the first frame named $fname with a
+'Description' field in the specified array reference $descrs and the
+language in the list of specified languages $languages.  If the frame
+is a "simple frame", the frame is returned as a string, otherwise as a
+hash reference; a "simple frame" should consist of one of
+Text/URL/_Data fields, with possible addition of Language and
+Description fields (if the corresponding arguments were defined).
+
+The lists $descrs and $languages of one element can be flattened to
+become this element (as with C<''> above).  If the lists are not
+defined, no restriction is applied.  Language of C<''> means no
+restriction on language.
+
+If optional argument $newtext is given, the found frames are removed; if
+$newtext is defined, a new frame is created (the first elements of
+$descrs and $languages are used as the short description and the language,
+default to C<''> and C<XXX>).
+
+=cut
+
+sub _frame_select {
+    # "Quadratic" in number of comment frames and select-short/lang specifiers
+    my ($self, $how, $fname) = (shift, shift, shift);
+    my ($shorts, $languages, $comment) = @_  or return $self->_comment();
+    $shorts = [$shorts] if defined $shorts and not ref $shorts;
+    $languages = [$languages] if defined $languages and not ref $languages;
+    if (defined $languages) {
+	$languages = [$languages] if defined $languages and not ref $languages;
+	@$languages = map lc, @$languages;
+    }
+    my @info = get_frames($self, $fname);
+    shift @info;
+    my $c;
+    my @by_lang;
+    # Do it the slow way...
+    if (defined $languages) {
+	for my $l (@$languages) {
+	    if ($l =~ /^#(\d+)$/) {
+		next if $1 >= @info;
+		push(@by_lang, [$1, $info[$1]]);
+	    } else {
+		$c = -1;
+		for my $f (@info) {
+		    $c++;
+		    push(@by_lang, [$c, $f])
+			if defined $f->{Language} and $l eq lc $f->{Language}
+			    or $l eq '';
+		}
+	    }
+	}
+    } else {
+	$c = -1;
+	@by_lang = map [++$c, $_], @info;
+    }
+    my @select;
+    for my $cc (@by_lang) {
+	($c, my $frame) = @$cc;
+	push(@select, $cc), next unless defined $shorts;
+	push(@select, $cc)
+	    if defined $frame->{Description}
+		 and grep $_ eq $frame->{Description}, @$shorts;
+    }
+    return scalar @select if $how;
+    if (@_ < 3) {			# Read-only access
+	return '' unless @select;
+	my $res = $select[0][1];
+	my $c = keys %$res;
+	$c-- if exists $res->{Description} and defined $shorts;
+	$c-- if exists $res->{Language} and defined $languages;
+	return $select[0][1]->{Text} if $c <= 1 and exists $select[0][1]->{Text};
+	return $select[0][1]->{URL} if $c <= 1 and exists $select[0][1]->{URL};
+	return $select[0][1]->{_Data} if $c <= 1 and exists $select[0][1]->{_Data};
+	return $res;
+    }
+    # Write
+    for my $f (@select) {
+	($c, my $frame) = @$f;
+	$self->remove_frame($c ? sprintf '%s%02d', $fname, $c : $fname);
+    }
+    return unless defined $comment;
+    $languages = ['XXX'] unless defined $languages;
+    my $format = get_format($fname);
+    my $have_lang = grep $_->{name} eq 'Language', @$format;
+    $#$languages = $have_lang - 1; # Truncate
+    $shorts = ['']       unless defined $shorts;
+    my $have_descr = grep $_->{name} eq 'Description', @$format;
+    $#$shorts = $have_descr - 1;   # Truncate
+    $self->add_frame($fname, @$languages, @$shorts, $comment);
+}
+
+sub frame_select {
+    my $self = shift;
+    $self->_frame_select(0, @_);
+}
+
+=item frame_have()
+
+Same as frame_select(), but returns the count of found frames.
+
+=cut
+
+sub frame_have {
+    my $self = shift;
+    $self->_frame_select(1, @_);
 }
 
 =item year( [@new_year] )
@@ -1301,7 +1422,8 @@ sub read_header {
 		my @flag_meaning=([],[], # v2.0 and v2.1 aren't supported yet
 			       ["unknown","unknown","unknown","unknown","unknown","unknown","compress_all","unsync"],
 			       ["unknown","unknown","unknown","unknown","unknown","experimental","extheader","unsync"],
-			       ["unknown","unknown","unknown","unknown","footer","experimental","extheader","unsync"]
+			       ["unknown","unknown","unknown","unknown","footer","experimental","extheader","unsync"],
+			       ["unknown","unknown","unknown","unknown","footer","experimental","extheader","unsync"],
 			      );
 
 		# extract the header data
@@ -1677,8 +1799,8 @@ sub TMED {
 }
 
 BEGIN {
-	# ID3v2.2, v2.3 are supported
-	@supported_majors=(0,0,1,1,0);
+	# ID3v2.2, v2.3 are supported, v2.4 is very compatible...
+	@supported_majors=(0,0,1,1,1);
 	
 	my $encoding    ={len=>1, name=>"_encoding", data=>1};
 	my $text_enc    ={len=>-1, name=>"Text", encoded=>1};
@@ -1757,7 +1879,7 @@ BEGIN {
 			    {len=>2, name=>"Preview length", isnum=>1}],
 		   APIC => [$encoding, {len=>0, name=>"MIME type"},
 			    {len=>1, name=>"Picture Type", func=>\&APIC}, $description, $data],
-		   COMM => [$encoding, $language, {name=>"short", len=>0, encoding=>1}, $text_enc],
+		   COMM => [$encoding, $language, $description, $text_enc],
 		   COMR => [$encoding, {len=>0, name=>"Price"}, {len=>8, name=>"Valid until"},
 			    $url, {len=>1, name=>"Received as", func=>\&COMR},
 			    {len=>0, name=>"Name of Seller", encoded=>1},

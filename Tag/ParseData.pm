@@ -3,7 +3,7 @@ package MP3::Tag::ParseData;
 use strict;
 use vars qw /$VERSION @ISA/;
 
-$VERSION="0.02";
+$VERSION="0.03";
 @ISA = 'MP3::Tag::__hasparent';
 
 =pod
@@ -200,15 +200,26 @@ sub parse {
 	# warn "Failure: [@$d]\n" unless $res;
 	# Set user-scratch space data immediately
 	for my $k (keys %$res) {
-	  if ($k =~ /^U(\d{1,2})$/) {
+	  if ($k eq 'year') {	# Do nothing
+	  } elsif ($k =~ /^U(\d{1,2})$/) {
 	    $self->{parent}->set_user($1, delete $res->{$k})
-	  } elsif ($k =~ /^\w{4}(\d{2,})?$/ and $k ne 'year') {
+	  } elsif ($k =~ /^\w{4}(\d{2,})?$/) {
 	    if (length $res->{$k}
 		or $self->get_config('id3v2_frame_empty_ok')->[0]) {
 	      $self->{parent}->set_id3v2_frame($k, delete $res->{$k})
 	    } else {
 	      delete $res->{$k};
 	      $self->{parent}->set_id3v2_frame($k);
+	    }
+	  } elsif ($k =~ /^(\w{4})(?:\(([^)]*)\))?(?:\[([^]]*)\])?$/) {
+	    my $langs = defined $2 ? [split /,/, $2, -1] : undef;
+	    my ($fname, $shorts) = ($1, $3);
+	    my $r = $res->{$k};
+	    $r = undef unless length $r or $self->get_config('id3v2_frame_empty_ok')->[0];
+	    if (defined $r or $self->{parent}->_get_tag('ID3v2')) {
+	      $self->{parent}->new_tag("ID3v2")
+		unless $self->{parent}->_get_tag('ID3v2');
+	      $self->{parent}->_get_tag('ID3v2')->frame_select($fname, $shorts, $langs, $r)
 	    }
 	  }
 	}

@@ -39,7 +39,7 @@ ok($mp3->year eq 2000, "Reading ID3v1 year via Tag");
 ok($mp3->genre eq 'Ska', "Reading ID3v1 genre via Tag");
 
 #test - reading ID3v2
-ok($v2 && $v2->get_frame("COMM")->{short} eq "Test!","Reading ID3v2");
+ok($v2 && $v2->get_frame("COMM")->{Description} eq "Test!","Reading ID3v2");
 
 {local *F; open F, '>test2.mp3' or warn; print F 'empty'}
 
@@ -267,7 +267,7 @@ $i = $mp3->comment;
 ok($mp3 && $i eq 'dir; audio_07', "multi-%c and %e via parse/interpolate");
 
 my @failed;
-@failed ? die "Tests @failed failed.\n" : print "All tests successful.\n";
+#@failed ? die "Tests @failed failed.\n" : print "All tests successful.\n";
 
 sub ok_test {
   my ($result, $test) = @_;

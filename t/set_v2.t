@@ -7,7 +7,7 @@
 # Change 1..1 below to 1..last_test_to_print .
 # (It may become useful if the test is moved to ./t subdirectory.)
 
-BEGIN { $| = 1; print "1..16\n"; }
+BEGIN { $| = 1; print "1..28\n"; }
 END {print "MP3::Tag not loaded :(\n" unless $loaded;}
 use MP3::Tag;
 $loaded = 1;
@@ -61,8 +61,28 @@ $mp3 = MP3::Tag->new("test12.mp3");
 
 ok($mp3->title() eq 'another tit1',"Got ID3v2");
 
+{local *F; open F, '>test12.mp3' or warn; print F 'empty'}
+
+$mp3 = MP3::Tag->new("test12.mp3");
+ok($mp3, "Got tag");
+ok(scalar ($mp3->config('parse_data',['mz', 'another text', '%{TXXX[foo]}']), 1),
+   "config parsedata TXXX[foo]");
+ok($mp3->title, "prepare the data");
+ok($mp3->interpolate('%{TXXX}'), "have TXXX");
+ok(!$mp3->interpolate('%{TXXX01}'), "no TXXX01");
+ok(!$mp3->interpolate('%{TXXX02}'), "no TXXX02");
+
+ok($mp3->update_tags, 'update');
+
+ok($mp3 = MP3::Tag->new("test12.mp3"), 'reinit ourselves');
+ok($mp3->title, "prepare the data");
+ok($mp3->interpolate('%{TXXX}'), "have TXXX");
+ok(!$mp3->interpolate('%{TXXX01}'), "no TXXX01");
+ok(!$mp3->interpolate('%{TXXX02}'), "no TXXX02");
+
+
 my @failed;
-@failed ? die "Tests @failed failed.\n" : print "All tests successful.\n";
+#@failed ? die "Tests @failed failed.\n" : print "All tests successful.\n";
 
 sub ok_test {
   my ($result, $test) = @_;

@@ -4,6 +4,43 @@ Connect parts of comment by \n if \n is already present there.
 
 Allow date only at start/end of the comment.
 
+Release Name: 0.94
+=======================
+
+The example of the "long" form of ID3v2-comment setting API has arguments swapped.
+
+New methods ->comment_select(), ->comment_have() of ID3v2.
+
+New methods ->pure_filetags() and ->update_tags() of MP3::Tag.
+
+New config variables id3v2_missing_fatal (it was as if it was defaulting to
+TRUE; now defaults to FALSE), parse_minmatch.
+
+New test files in t/: v2_comments.t update_tags.t parser.t 
+
+New escape %{COMM(rus,eng,xxx,#4)[short_description]} (chooses a comment with
+"short_description" descriptor in the specified list of languages; #4 means
+4th comment field, or COMM03; empty language means any language.)  Works
+as a condition for conditional interpolation too, and as a target of parsing
+and ParseData.  Similarly for other frames which have 'Language' and/or
+'Description' fields.
+
+Some POD formatting fixed.
+
+Setting "extra" ID3v2 frames was not immediately visible (only after write
+and re-read from the file).
+
+COMM's short-description was not marked as 'encoded' (due to a misprint).
+
+UNCOMPATIBLE CHANGEs:
+
+COMM's frame short-description now sits on the key "Description", not "short".
+[If you want backward compatibility, check both keys.]
+
+get_frame() considers frames the only content of which is a URL as a "simple
+frame"; likewise for frame_select(), but it also considers frames with _Data
+only as "simple frames".
+
 Release Name: 0.93
 =======================
 

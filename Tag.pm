@@ -49,9 +49,10 @@ use vars qw/$VERSION %config/;
 	    year_is_timestamp	=> [1],
 	    comment_remove_date	=> [0],
 	    id3v2_frame_empty_ok	=> [0],
+	    parse_minmatch => [0],
 	  );
 
-$VERSION="0.93";
+$VERSION="0.94";
 
 =pod
 
@@ -211,6 +212,11 @@ sub get_tags {
     }
     $self->{gottags} = [@IDs];
     return @IDs;
+}
+
+sub _get_tag {
+    my $self = shift;
+    $self->{shift()};
 }
 
 # keep old name for a while
@@ -459,114 +465,133 @@ changes are not inherited.)
 
 Possible items are:
 
-* autoinfo
+=over
 
-  Configure the order in which ID3v1-, ID3v2-tag and filename are used
-  by autoinfo.  Options can be "ID3v1", "ID3v2", "CDDB_File", "Inf", "filename".
-  The order
-  in which they are given to config also sets the order how they are
-  used by autoinfo. If an option is not present, it will not be used
-  by autoinfo (and other auto-methods if the specific overriding config
-  command were not issued).
+=item autoinfo
+
+Configure the order in which ID3v1-, ID3v2-tag and filename are used
+by autoinfo.  Options can be "ID3v1", "ID3v2", "CDDB_File", "Inf", "filename".
+The order
+in which they are given to config also sets the order how they are
+used by autoinfo. If an option is not present, it will not be used
+by autoinfo (and other auto-methods if the specific overriding config
+command were not issued).
 
   $mp3->config("autoinfo","ID3v1","ID3v2","filename");
 
-    sets the order to check first ID3v1, then ID3v2 and at last the
-    Filename
+sets the order to check first ID3v1, then ID3v2 and at last the
+Filename
 
   $mp3->config("autoinfo","ID3v1","filename","ID3v2");
 
-    sets the order to check first ID3v1, then the Filename and last
-    ID3v2. As the filename will be always present ID3v2 will here
-    never be checked.
+sets the order to check first ID3v1, then the Filename and last
+ID3v2. As the filename will be always present ID3v2 will here
+never be checked.
 
   $mp3->config("autoinfo","ID3v1","ID3v2");
 
-    sets the order to check first ID3v1, then ID3v2. The filename will
-    never be used.
+sets the order to check first ID3v1, then ID3v2. The filename will
+never be used.
 
-* title artist album year comment track genre
+=item title artist album year comment track genre
 
-  Configure the order in which ID3v1- and ID3v2-tag are used
-  by the corresponding methods (e.g., comment()).  Options can be
-  "ID3v1", "ID3v2", "Inf", "CDDB_File", "filename". The order
-  in which they are given to config also sets the order how they are
-  used by comment(). If an option is not present, then C<autoinfo> option
-  will be used instead.
+Configure the order in which ID3v1- and ID3v2-tag are used
+by the corresponding methods (e.g., comment()).  Options can be
+"ID3v1", "ID3v2", "Inf", "CDDB_File", "filename". The order
+in which they are given to config also sets the order how they are
+used by comment(). If an option is not present, then C<autoinfo> option
+will be used instead.
 
-* extension
+=item  extension
 
-  regular expression to match the file extension (including the dot).  The
-  default is to match 1..4 letter extensions which are not numbers.
+regular expression to match the file extension (including the dot).  The
+default is to match 1..4 letter extensions which are not numbers.
 
-* parse_data
+=item parse_data
 
-  the data used by L<MP3::Tag::ParseData> handler; each option is an array
-  reference of the form C<[$flag, $string, $pattern1, ...]>.  All the options
-  are processed in the following way: patterns are matched against $string
-  until one of them succeeds; the information obtained from later options takes
-  precedence over the information obtained from earlier ones.
+the data used by L<MP3::Tag::ParseData> handler; each option is an array
+reference of the form C<[$flag, $string, $pattern1, ...]>.  All the options
+are processed in the following way: patterns are matched against $string
+until one of them succeeds; the information obtained from later options takes
+precedence over the information obtained from earlier ones.
 
-* parse_split
+=item  parse_split
 
-  The regular expression to split the data when parsing with C<n> or C<l> flags.
+The regular expression to split the data when parsing with C<n> or C<l> flags.
 
-* parse_filename_ignore_case
+=item  parse_filename_ignore_case
 
-  If true (default), calling parse() and parse_rex() with match-filename
-  escapes (such as C<%=D>) matches case-insensitively.
+If true (default), calling parse() and parse_rex() with match-filename
+escapes (such as C<%=D>) matches case-insensitively.
 
-* parse_filename_merge_dots
+=item  parse_filename_merge_dots
 
-  If true (default), calling parse() and parse_rex() with match-filename
-  escapes (such as C<%=D>) does not distinguish a dot and many consequent
-  dots.
+If true (default), calling parse() and parse_rex() with match-filename
+escapes (such as C<%=D>) does not distinguish a dot and many consequent
+dots.
 
-* parse_join
+=item  parse_join
 
-  string to put between multiple occurences of a tag in a parse pattern;
-  defaults to C<'; '>.  E.g., parsing C<'1988-1992, Homer (LP)'> with pattern
-  C<'%c, %a (%c)'> results in comment set to C<'1988-1992; LP'> with the
-  default value of C<parse_join>.
+string to put between multiple occurences of a tag in a parse pattern;
+defaults to C<'; '>.  E.g., parsing C<'1988-1992, Homer (LP)'> with pattern
+C<'%c, %a (%c)'> results in comment set to C<'1988-1992; LP'> with the
+default value of C<parse_join>.
 
-* v2title
+=item  v2title
 
-  Configure the elements of ID3v2-tag which are used by ID3v2::title().
-  Options can be "TIT1", "TIT2", "TIT3"; the present values are combined.
-  If an option is not present, it will not be used by ID3v2::title().
+Configure the elements of ID3v2-tag which are used by ID3v2::title().
+Options can be "TIT1", "TIT2", "TIT3"; the present values are combined.
+If an option is not present, it will not be used by ID3v2::title().
 
-* cddb_files
+=item  cddb_files
 
-  List of files to look for in the directory of MP3 file to get CDDB info.
+List of files to look for in the directory of MP3 file to get CDDB info.
 
-* year_is_timestamp
+=item  year_is_timestamp
 
-  If TRUE (default) parse() will match complicated timestamps against C<%y>;
-  for example, C<2001-10-23--30,2002-02-28> is a range from 23rd to 30th of
-  October 2001, I<and> 28th of February of 2002.  According to ISO, C<--> can
-  be replaced by C</> as well.  For convenience, the leading 0 can be omited
-  from the fields which ISO requires to be 2-digit.
+If TRUE (default) parse() will match complicated timestamps against C<%y>;
+for example, C<2001-10-23--30,2002-02-28> is a range from 23rd to 30th of
+October 2001, I<and> 28th of February of 2002.  According to ISO, C<--> can
+be replaced by C</> as well.  For convenience, the leading 0 can be omited
+from the fields which ISO requires to be 2-digit.
 
-* comment_remove_date
+=item  comment_remove_date
 
-  When extracting the date from comment fields, remove the recognized portion
-  even if it is human readable (e.g., C<Recorded on 2014-3-23>) if TRUE.
-  Current default: FALSE.
+When extracting the date from comment fields, remove the recognized portion
+even if it is human readable (e.g., C<Recorded on 2014-3-23>) if TRUE.
+Current default: FALSE.
 
-* id3v2_frame_empty_ok
+=item  id3v2_frame_empty_ok
 
-  When setting the individual id3v2 frames via ParseData, do not
-  remove the frames set to an empty string.  Default 0.
+When setting the individual id3v2 frames via ParseData, do not
+remove the frames set to an empty string.  Default 0.
 
-* translate_*
+=item  translate_*
 
-  A subroutine used to munch a field C<*> (out of C<title track artist album comment year genre>)
-  Takes two arguments: the MP3::Tag object, and the current value of the field.
+A subroutine used to munch a field C<*> (out of C<title track artist album comment year genre>)
+Takes two arguments: the MP3::Tag object, and the current value of the field.
 
-  The second argument may also have the form C<[value, handler]>, where C<handler>
-  is the string indentifying the handler which returned the value.
+The second argument may also have the form C<[value, handler]>, where C<handler>
+is the string indentifying the handler which returned the value.
 
-* Later there will be probably more things to configure.
+=item id3v2_missing_fatal
+
+If TRUE, interpolating ID3v2 frames (e.g., by C<%{TCOM}>) when
+the ID3v2 tags is missing is a fatal error.  If false (default), in such cases
+interpolation results in an empty string.
+
+=item parse_minmatch
+
+may be 0, 1, or a list of free-form escapes which are matched
+non-greedily by parse() and friends.  E.g., parsing 
+C<'Adagio - Andante - Piano Sonata'> via C<'%t - %l'> gives different results
+for the settings 0 and 1.
+
+=item *
+
+Later there will be probably more things to configure.
+
+=over
 
 =cut
 
@@ -580,7 +605,8 @@ sub config {
 		   v2title cddb_files force_interpolate parse_data parse_split
 		   parse_join parse_filename_ignore_case
 		   parse_filename_merge_dots year_is_timestamp
-		   comment_remove_date extension);
+		   comment_remove_date extension id3v2_missing_fatal
+		   parse_minmatch);
     my @tr = map "translate_$_", qw( title track artist album comment year genre );
     $conf_rex = '^(' . join('|', @known, @tr) . ')$' unless $conf_rex;
 
@@ -607,6 +633,28 @@ changes are not inherited.)
 sub get_config ($$) {
     my ($self, $item) = @_;
     ($self->{config} ||= {%config})->{lc $item};
+}
+
+=item pure_filetags
+
+  $data = $mp3->pure_filetags()->autoinfo;
+
+Configures $mp3 to not read anything except the pure ID3v2 or ID3v1 tags, and
+do not postprocess them.  Returns the object reference itself to simplify
+chaining of method calls.
+
+=cut
+
+sub pure_filetags ($) {
+    my $self = shift;
+    for my $c (qw(autoinfo title artist album year comment track genre)) {
+	$self->config($c,"ID3v2","ID3v1");
+    }
+    $self->config('comment_remove_date', 0);
+    for my $k (%{$self->{config}}) {
+	delete $self->{config}->{$k} if $k =~ /^translate_/;
+    }
+    return $self;
 }
 
 =item get_user
@@ -753,6 +801,23 @@ Strings C<aC>, C<tT>, C<cC>, C<cT> are replaced for collection artist,
 track title, collection comment, and track comment as obtained from
 CDDB_File.
 
+=item *
+
+Strings of the form C<FRAM(list,of,languages)[description]'> are
+replaced by the first FRAM frame with the descriptor "description" in
+the specified comma-separated list of languages.  Instead of a
+language (ID3v2 uses 3-char ISO-639-2 language notations) one can use
+a string of the form C<#Number>; e.g., C<#4> means 4th FRAM frame, or
+FRAM04.  Empty string for the language means any language.)  Works as
+a condition for conditional interpolation too.
+
+Any one of the list of languages and the disription can be omitted;
+this means that either the frame FRAM has no language or descriptor
+associated, or no restriction should be applied.
+
+Some applications denote unknown language as C<XXX> (in uppercase!).
+The language match is case-insensitive.
+
 =over
 
 The default for the fill character is SPACE.  Fill character should preceed
@@ -769,6 +834,14 @@ if title is C<TITLE>, and TIT3 is C<Op. 16>, and
    Title: TITLE///////. No TIT3 is present
 
 if title is C<TITLE>, but TIT3 is not present.
+
+  Fat content: %{COMM(eng,fra,fre,rus,)[FatContent]}
+
+will print the comment field with I<Description> C<FatContent>
+prefering the description in English to one in French, Russian, or any
+other language (in this order).  (I do not know which one of
+terminology/bibliography codes for Frech is used, so for safety
+include both.)
 
 =cut
 
@@ -851,16 +924,30 @@ sub interpolate {
 	    ($str = $3) =~ s/\\([\\{}])/$1/g;
 	    $str = $self->interpolate($str);
 	} elsif ($what eq '{') {	# id3v2 stuff
-	    die "No ID3v2 present" unless $self->{ID3v2};
+	    unless ($self->{ID3v2}) {
+		die "No ID3v2 present" if $self->get_config('id3v2_missing_fatal');
+		return '';
+	    }
 	    $pattern =~ s/^((?:[^\\{}]|\\[\\{}])*)}// or die "Mismatched {} in pattern `$pattern'";
 	    $what = $1;
 	    if ($what =~ /^\w{4}\d*$/) {
 		$str = $self->{ID3v2}->get_frame($what);
+	    } elsif ($what =~ /^(\w{4})(?:\(([^)]*)\))?(?:\[([^]]*)\])?$/) {
+		my $langs = defined $2 ? [split /,/, $2, -1] : undef;
+		my ($fname, $shorts) = ($1, $3);
+		$str = $self->{ID3v2}->frame_select($fname, $shorts, $langs);
 	    } elsif ($what =~ /^(!)?(\w{4}\d*):(.*)/s) {
 		$ids = $self->{ID3v2}->get_frame_ids unless $ids;
 		my $have = exists $ids->{$2};
 		next unless $1 ? !$have : $have;
 		($str = $3) =~ s/\\([\\{}])/$1/g;
+		$str = $self->interpolate($str);
+	    } elsif ($what =~ /^(!)?(\w{4})(?:\(([^)]*)\))?(?:\[([^]]*)\])?:(.*)$/s) {
+		my $langs = defined $3 ? [split /,/, $3, -1] : undef;
+		my ($fname, $shorts) = ($2, $4);
+		my $have = $self->{ID3v2}->frame_have($fname, $shorts, $langs);
+		next unless $1 ? !$have : $have;
+		($str = $5) =~ s/\\([\\{}])/$1/g;
 		$str = $self->interpolate($str);
 	    } else {
 		die "unknown escape `$what'";
@@ -901,8 +988,11 @@ and are case-insensitive if configuration variable C<parse_filename_ignore_case>
 is true (default);
 moreover, <%n>, <%y>, <%=n>, <%=y> will not match if the string-to-match
 is adjacent to a digit).  Returns false on failure, a hash reference with
-parsed fields otherwise.  The escapes C<%{UE<lt>numberE<gt>}> and escapes of the forms C<%{ABCD}>, C<%{ABCDE<lt>numberE<gt>}> match any string,
-and corresponds to the hash key inside braces; here C<ABCD> is a 4-letter word possibly followed by 2-digit number (as in names of ID3v2 tags).
+parsed fields otherwise.  The escapes C<%{UE<lt>numberE<gt>}> and escapes
+of the forms C<%{ABCD}>, C<%{ABCDE<lt>numberE<gt>}> match any string,
+and corresponds to the hash key inside braces; here C<ABCD> is a 4-letter
+word possibly followed by 2-digit number (as in names of ID3v2 tags), or
+what can be put in C<'%{FRAM(lang,list)[description]}'>.
 
   $res = $mp3->parse_rex(qr<^%a - %t\.\w{1,4}$>, $mp3->filename_nodir) or die;
   $author = $res->{author};
@@ -949,6 +1039,16 @@ sub _rex_protect_filename {
     return "(?i:$filename)";
 }
 
+sub _parse_rex_anything ($$) {
+    my $c = shift->get_config('parse_minmatch');
+    my $min = $c->[0];
+    if ($min and $min ne '1') {
+	my $field = shift;
+	$min = grep $_ eq $field, @$c;
+    }
+    return $min ? '(.*?)' : '(.*)';
+}
+
 sub _parse_rex_microinterpolate {	# $self->idem($code, $groups, $ecount)
     my ($self, $code, $groups) = (shift, shift, shift);
     return '%' if $code eq '%';
@@ -958,7 +1058,8 @@ sub _parse_rex_microinterpolate {	# $self->idem($code, $groups, $ecount)
 	if $code eq 'y' and ($self->get_config('year_is_timestamp'))->[0];
     (push @$groups, $code), return '((?<!\d)[12]\d{3}(?!\d)|\A\Z)'
 	if $code eq 'y';
-    (push @$groups, $code), return '(.*)' if $code =~ /^[talgc]$/;
+    (push @$groups, $code), return $self->_parse_rex_anything($code)
+	if $code =~ /^[talgc]$/;
     $_[0]++, return $self->_rex_protect_filename($self->interpolate("%$1"), $1)
 	if $code =~ /^=([ABDfFN]|{d\d+})$/;
     $_[0]++, return quotemeta($self->interpolate("%$1"))
@@ -967,7 +1068,8 @@ sub _parse_rex_microinterpolate {	# $self->idem($code, $groups, $ecount)
 	if $code eq '=n';
     $_[0]++, return '(?<!\d)' . quotemeta($self->year) . '(?!\d)'
 	if $code eq '=y';
-    (push @$groups, $1), return '(.*)' if $code =~ /^{(U\d+|\w{4}(\d\d+)?)}$/;
+    (push @$groups, $1), return $self->_parse_rex_anything()
+	if $code =~ /^{(U\d+|\w{4}(\d\d+|(?:\([^\)]*\))?(?:\[[^\]]*\])?)?)}$/;
     # What remains is extension
     my $e = $self->get_config('extension')->[0];
     (push @$groups, $code), return "($e)" if $code eq 'E';
@@ -1270,6 +1372,53 @@ sub is_copyrighted_YN	{ shift->is_copyrighted() ? 'Yes' : 'No' }
 
 my @channel_modes = ('stereo', 'joint stereo', 'dual channel', 'mono');
 sub channel_mode	{ $channel_modes[shift->channel_mode_int] }
+
+=item update_tags( [ $data ] )
+
+  $mp3 = MP3::Tag->new($filename);
+  $mp3->update_tags();			# Fetches the info, and updates tags
+
+This method updates ID3v1 and ID3v2 tags (the latter only if needed) with
+the the information about title, artist, album, year, comment, track,
+genre from the hash reference $data.  The format of $data is the same as
+one returned from autoinfo() (with or without the optional argument 'from').
+The fields which are marked as coming from ID3v1 or ID3v2 tags are not updated
+when written to the same tag.
+
+If $data is not defined or missing, C<autoinfo('from')> is called to obtain
+the data.  Returns the object reference itself to simplify chaining of method
+calls.
+
+=cut
+
+sub update_tags {
+    my ($mp3, $data) = (shift, shift);
+
+    $data = $mp3->autoinfo('from') unless defined $data;
+
+    $mp3->new_tag("ID3v1") unless exists $mp3->{ID3v1};
+    my $elt;
+    for $elt (qw/title artist album year comment track genre/) {
+	my $d = $data->{$elt};
+	next unless defined $d;
+	$d = [$d, ''] unless ref $d;
+        $mp3->{ID3v1}->$elt( $d->[0] ) if $d->[1] ne 'ID3v1';
+    }				# Skip what is already there...
+    $mp3->{ID3v1}->write_tag;
+
+    return $mp3 if $mp3->{ID3v1}->fits_tag($data) and not exists $mp3->{ID3v2};
+
+    $mp3->new_tag("ID3v2") unless exists $mp3->{ID3v2};
+    for $elt (qw/title artist album year comment track genre/) {
+	my $d = $data->{$elt};
+	next unless defined $d;
+	$d = [$d, ''] unless ref $d;
+        $mp3->{ID3v2}->$elt( $d->[0] ) if $d->[1] ne 'ID3v2';
+    }				# Skip what is already there...
+    # $mp3->{ID3v2}->comment($data->{comment}->[0]);
+    $mp3->{ID3v2}->write_tag;
+    return $mp3;
+}
 
 sub DESTROY {
     my $self=shift;
