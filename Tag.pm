@@ -13,7 +13,7 @@ package MP3::Tag;
 # at the moment MP3::Tag works with MP3::Tag::ID3v1 and MP3::Tag::ID3v2
 
 use strict;
-use Cwd 'abs_path';
+use File::Spec;
 
 {
   package MP3::Tag::__hasparent;
@@ -50,7 +50,7 @@ use vars qw/$VERSION %config/;
 	    comment_remove_date	=> [0],
 	  );
 
-$VERSION="0.91";
+$VERSION="0.92";
 
 =pod
 
@@ -138,7 +138,7 @@ sub new {
     if ($mp3data) {
 	%$self = (filename=>$mp3data,
 		  ofilename => $filename,
-		  abs_filename => abs_path($filename),
+		  abs_filename => File::Spec->rel2abs($filename),
 		  __proxy => $proxy);
 	return $self;
     }

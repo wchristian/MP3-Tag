@@ -1,3 +1,9 @@
+Release Name: 0.92
+=======================
+
+Include a fix by Marco Moreno of Cwd::abspath() not working on files (on
+some architectures).
+
 Release Name: 0.91
 =======================
 

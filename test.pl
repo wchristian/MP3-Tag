@@ -167,12 +167,12 @@ ok($inf && $mp3->autoinfo->{comment} eq 'Chiribim conducts Some Choir; recorded 
 ok($inf && $mp3->autoinfo('from')->{comment}[0] eq 'Chiribim conducts Some Choir; recorded in Mariann', "Checking .inf comment+source");
 ok($inf && $mp3->autoinfo('from')->{comment}[1] eq 'Inf', "Checking .inf comment source");
 
-require Cwd;
+use File::Spec;
 require File::Basename;
 my $i =  $mp3->interpolate('file=%(_)-12f, File=%F, %%comment="%c", dir="%{d0}"');
-my $ii = 'file=test2.mp3___, File=' . Cwd::abs_path('test2.mp3')
+my $ii = 'file=test2.mp3___, File=' . File::Spec->rel2abs('test2.mp3')
 	. ', %comment="Chiribim conducts Some Choir; recorded in Mariann"'
-	. ', dir="' . scalar(File::Basename::fileparse(File::Basename::dirname(Cwd::abs_path('test2.mp3')),"")) . '"';
+	. ', dir="' . scalar(File::Basename::fileparse(File::Basename::dirname(File::Spec->rel2abs('test2.mp3')),"")) . '"';
 #warn "$i\n$ii\n";
 ok($inf && $i eq $ii, "Checking interpolation");
 
