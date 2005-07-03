@@ -52,7 +52,7 @@ use vars qw/$VERSION %config/;
 	    parse_minmatch => [0],
 	  );
 
-$VERSION="0.95";
+$VERSION="0.96";
 
 =pod
 

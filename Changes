@@ -1,6 +1,20 @@
 Release Name: 0.95
 =======================
 
+A bug fix by Ben Bennett for 2.4 support.
+
+Having a genre of the form '(2345)Some new type' would emit a warning.
+
+UTF encoded fields are decoded by default.  Set MP3TAG_ENCODING=0 in
+environment to disable.
+
+Add ID3v2-Data.pod to MANIFEST to avoid circular dependency (XXXX bug:
+it is generated using the installed version of ID3v2.pm, not the
+current version).
+
+Release Name: 0.95
+=======================
+
 After removing several of repeated frames, get_frame(s) could get confused.
 So could the code using get_frame(s).  Now better documented, and fixed.
 

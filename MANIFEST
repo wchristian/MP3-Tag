@@ -34,4 +34,5 @@ t/update_tags.t
 t/parser.t
 tk-tag/README
 tk-tag/tk-tag.pl
+ID3v2-Data.pod
 META.yml                                 Module meta-data (added by MakeMaker)

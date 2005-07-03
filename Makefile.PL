@@ -5,7 +5,7 @@ WriteMakefile(
     'NAME'		=> 'MP3::Tag',
     'VERSION_FROM'	=> 'Tag.pm', # finds $VERSION
     'PMLIBDIRS'         => ['Tag', 'MP3::Tag'],
-    'AUTHOR'            => '"Thomas Geffert" <thg@users.sourceforge.net>',
+    'AUTHOR'            => '"Thomas Geffert" <thg@users.sourceforge.net>, "Ilya Zakharevich" ilyaz@cpan.org',
     'PREREQ_PM'         => {
 				# Compress::Zlib => 0,
 			   },

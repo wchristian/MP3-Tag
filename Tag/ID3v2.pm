@@ -12,11 +12,11 @@ use File::Basename;
 
 use vars qw /%format %long_names %res_inp @supported_majors %v2names_to_v3 $VERSION @ISA/;
 
-$VERSION="0.95";
+$VERSION="0.96";
 @ISA = 'MP3::Tag::__hasparent';
 
-# ignore different $\ settings, otherwise tags may not be written correctly
-local $\="";
+my $trustencoding = $ENV{MP3TAG_ENCODING};
+$trustencoding = 1 unless defined $trustencoding;
 
 =pod
 
@@ -1481,7 +1481,7 @@ sub read_header {
 		# extract the header data
 		my ($major, $revision, $pflags) = unpack ("x3CCC", $header);
 		# check the version
-		if ($major >= $#supported_majors || $supported_majors[$major] == 0) {
+		if ($major >= $#supported_majors or $supported_majors[$major] == 0) {
 			warn "Unknown ID3v2-Tag version: V$major.$revision\n";
 			print "| $major > ".($#supported_majors)." || $supported_majors[$major] == 0\n";
 			print "| ",join(",",@supported_majors),"n";
@@ -1532,9 +1532,9 @@ sub extract_data {
 	my ($data, $format) = @_;
 	my ($rule, $found,$encoding, $result);
 
+	$encoding=0;
 	foreach $rule (@$format) {
 		next if exists $rule->{v3name};
-		$encoding=0;
 		# get the data
 		if ( exists $rule->{mlen} ) {
 			($found, $data) = ($data, "");
@@ -1561,10 +1561,19 @@ sub extract_data {
 		if ($rule->{name} eq "_encoding") {
 			$encoding=unpack ("C", $found);
 		} else {
-			if (exists $rule->{encoded} && $encoding != 0) {
-				# decode data
-				warn "Encoding not supported yet: found in $rule->{name}\n";
-				next;
+			if (exists $rule->{encoded}) {
+			  if ( $encoding > 3 ) {
+			    # decode data
+			    warn "Encoding type '$encoding' not supported yet: found in $rule->{name}\n";
+			    next;
+			  } elsif ($encoding and not $trustencoding) {
+			    warn "UTF encoding types disabled via MP3TAG_ENCODING=1 to enable): found in $rule->{name}\n";
+			    next;
+			  } elsif ($encoding) {
+			    require Encode;
+			    $found = Encode::decode(($encoding > 2 
+						 ? 'UTF-8' :'UTF-16'), $found);
+			  }
 			}
 			
 			$found = toNumber($found) if ( $rule->{isnum} );
@@ -1754,9 +1763,7 @@ sub TCON {
 	return \%ret;
     }
     # called by extract_data
-    if ($data =~ /\((\d+)\)/) {
-	$data =~ s/\((\d+)\)/MP3::Tag::ID3v1::genres($1)/e;
-    }
+    $data =~ s/\((\d+)\)/ MP3::Tag::ID3v1::genres($1) || "($1)" /e;
     return $data;
 }
 
