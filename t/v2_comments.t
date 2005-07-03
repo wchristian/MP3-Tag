@@ -7,7 +7,7 @@
 # Change 1..1 below to 1..last_test_to_print .
 # (It may become useful if the test is moved to ./t subdirectory.)
 
-BEGIN { $| = 1; print "1..40\n"; }
+BEGIN { $| = 1; print "1..82\n"; }
 END {print "MP3::Tag not loaded :(\n" unless $loaded;}
 use MP3::Tag;
 $loaded = 1;
@@ -82,6 +82,65 @@ ok($mp3->title, "prepare the data");
 ok($mp3->interpolate('%{COMM}'), "have COMM");
 ok(!$mp3->interpolate('%{COMM01}'), "no COMM01");
 ok(!$mp3->interpolate('%{COMM02}'), "no COMM02");
+
+{local *F; open F, '>test12.mp3' or warn; print F 'empty'}
+
+ok($mp3 = MP3::Tag->new("test12.mp3"), 'init ourselves');
+
+ok($mp3->config(parse_data => ['m', 'bar', '%{COMM[a]}'], ['m', 'baz', '%{COMM[b]}'], ['m', 'foo', '%{COMM[c]}']), 'config multiple parse_data to create COMMs');
+ok($mp3->title, "prepare the data");
+ok($mp3->interpolate('%{COMM}'), "have COMM");
+ok($mp3->interpolate('%{COMM01}'), "have COMM01");
+ok($mp3->interpolate('%{COMM02}'), "have COMM02");
+ok(!$mp3->interpolate('%{COMM03}'), "no COMM03");
+
+ok($mp3->update_tags, 'update');
+
+ok($mp3 = MP3::Tag->new("test12.mp3"), 'reinit ourselves');
+
+ok($mp3->config(parse_data => ['mz', '', '%{COMM[c]}'], ['mz', '', '%{COMM[b]}'], ['mz', '', '%{COMM[a]}']), 'config multiple parse_data to delete COMMs');
+ok($mp3->title, "prepare the data");
+ok(!$mp3->interpolate('%{COMM}'), "no COMM");
+ok(!$mp3->interpolate('%{COMM01}'), "no COMM01");
+ok(!$mp3->interpolate('%{COMM02}'), "no COMM02");
+ok(!$mp3->interpolate('%{COMM03}'), "no COMM03");
+
+ok($mp3 = MP3::Tag->new("test12.mp3"), 'reinit ourselves');
+
+ok($mp3->config(parse_data => ['mz', '', '%{COMM[a]}'], ['mz', '', '%{COMM[c]}'], ['mz', '', '%{COMM[b]}']), 'config multiple parse_data to delete COMMs');
+ok($mp3->title, "prepare the data");
+ok(!$mp3->interpolate('%{COMM}'), "no COMM");
+ok(!$mp3->interpolate('%{COMM01}'), "no COMM01");
+ok(!$mp3->interpolate('%{COMM02}'), "no COMM02");
+ok(!$mp3->interpolate('%{COMM03}'), "no COMM03");
+
+ok($mp3 = MP3::Tag->new("test12.mp3"), 'reinit ourselves');
+
+ok($mp3->config(parse_data => ['mz', '', '%{COMM[b]}'], ['mz', '', '%{COMM[c]}'], ['mz', '', '%{COMM[a]}']), 'config multiple parse_data to delete COMMs');
+ok($mp3->title, "prepare the data");
+ok(!$mp3->interpolate('%{COMM}'), "no COMM");
+ok(!$mp3->interpolate('%{COMM01}'), "no COMM01");
+ok(!$mp3->interpolate('%{COMM02}'), "no COMM02");
+ok(!$mp3->interpolate('%{COMM03}'), "no COMM03");
+
+ok($mp3 = MP3::Tag->new("test12.mp3"), 'reinit ourselves');
+
+ok($mp3->config(parse_data => ['mz', '', '%{COMM[a]}'], ['mz', '', '%{COMM[b]}'], ['mz', '', '%{COMM[c]}']), 'config multiple parse_data to delete COMMs');
+ok($mp3->title, "prepare the data");
+ok(!$mp3->interpolate('%{COMM}'), "no COMM");
+ok(!$mp3->interpolate('%{COMM01}'), "no COMM01");
+ok(!$mp3->interpolate('%{COMM02}'), "no COMM02");
+ok(!$mp3->interpolate('%{COMM03}'), "no COMM03");
+
+ok($mp3->update_tags, 'update');
+
+ok($mp3 = MP3::Tag->new("test12.mp3"), 'reinit ourselves');
+
+ok(!$mp3->interpolate('%{COMM}'), "no COMM");
+ok(!$mp3->interpolate('%{COMM01}'), "no COMM01");
+ok(!$mp3->interpolate('%{COMM02}'), "no COMM02");
+ok(!$mp3->interpolate('%{COMM03}'), "no COMM03");
+
 
 
 #ok($mp3, "Got tag");

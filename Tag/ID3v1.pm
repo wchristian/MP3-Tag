@@ -9,7 +9,7 @@ package MP3::Tag::ID3v1;
 use strict;
 use vars qw /@mp3_genres @winamp_genres $AUTOLOAD %ok_length $VERSION @ISA/;
 
-$VERSION="0.60";
+$VERSION="0.95";
 @ISA = 'MP3::Tag::__hasparent';
 
 # allowed fields in ID3v1.1 and max length of this fields (except for track and genre which are coded later)
@@ -196,6 +196,12 @@ sub fits_tag {
     return 1;
 }
 
+=item as_bin()
+
+  $str = $id3v1->as_bin();
+
+Returns the ID3v1 tag as a string.
+
 =item write_tag()
 
   $id3v1->write_tag();
@@ -206,16 +212,21 @@ Writes the ID3v1 tag to the file.
 
 =cut
 
-sub write_tag {
+sub as_bin {
     my $self = shift;
-    return undef unless exists $self->{title} && exists $self->{changed};
     local $self->{track}=0 unless $self->{track} =~ /^\d+$/;
     my $comment = $self->comment;
     $comment = pack "a28 x C", $comment, $self->{track}
 	if $self->{track} and $self->{track} !~ /\D/;
     $self->{genreID}=255 unless $self->{genreID} =~ /^\d+$/;
-    my $data = pack("a30a30a30a4a30C",$self->{title},$self->{artist},$self->{album}, 
-		    $self->{year}, $comment, $self->{genreID});
+    return pack("a3a30a30a30a4a30C","TAG",$self->{title},$self->{artist},
+		$self->{album}, $self->{year}, $comment, $self->{genreID});
+}
+
+sub write_tag {
+    my $self = shift;
+    return undef unless exists $self->{title} && exists $self->{changed};
+    my $data = $self->as_bin();
     my $mp3obj = $self->{mp3};
     my $mp3tag;
     $mp3obj->close;
@@ -224,10 +235,10 @@ sub write_tag {
 	$mp3obj->read(\$mp3tag, 3);
 	if ($mp3tag eq "TAG") {
 	    $mp3obj->seek(-125,2); # neccessary for windows
-	    $mp3obj->write($data);
+	    $mp3obj->write(substr $data, 3);
 	} else {
 	    $mp3obj->seek(0,2);
-	    $mp3obj->write("TAG$data");
+	    $mp3obj->write($data);
 	}
     } else {
 	warn "Couldn't open file `" . $mp3obj->filename() . "' to write tag";

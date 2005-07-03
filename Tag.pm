@@ -52,7 +52,7 @@ use vars qw/$VERSION %config/;
 	    parse_minmatch => [0],
 	  );
 
-$VERSION="0.94";
+$VERSION="0.95";
 
 =pod
 
@@ -701,12 +701,98 @@ values to the add_frame() function of MP3::Tag::ID3v2.
 # With two elements, removes frame
 sub set_id3v2_frame ($$;@) {
     my ($self, $item) = (shift, shift);
+    $self->get_tags;
     return if not @_ and not exists $self->{ID3v2};
     $self->new_tag("ID3v2") unless exists $self->{ID3v2};
     $self->{ID3v2}->remove_frame($item)
       if defined $self->{ID3v2}->get_frame($item);
     return unless @_;
     return $self->{ID3v2}->add_frame($item, @_);
+}
+
+=item get_id3v2_frames
+
+  ($descr, @frames) = $mp3->get_id3v2_frames($fname);
+
+Returns the specified frame(s); has the same API as
+L<MP3::Tag::ID3v2::get_frames>, but also returns undef if no ID3v2
+tag is present.
+
+=cut
+
+sub get_id3v2_frames ($$;$) {
+    my ($self) = (shift);
+    $self->get_tags;
+    return if not exists $self->{ID3v2};
+    $self->{ID3v2}->get_frames(@_);
+}
+
+=item is_id3v2_modified
+
+  $frame = $mp3->is_id3v2_modified();
+
+Returns TRUE if ID3v2 tag exists and was modified after creation.
+
+=cut
+
+sub is_id3v2_modified ($$;@) {
+    my ($self) = (shift);
+    return if not exists $self->{ID3v2};
+    $self->{ID3v2}->is_modified();
+}
+
+=item select_id3v2_frame
+
+  $frame = $mp3->select_id3v2_frame($fname, $descrs, $langs);
+
+Returns the specified frame(s); has the same API as
+L<MP3::Tag::ID3v2::frame_select> (args are frame name, list of wanted
+Descriptors, list of wanted Languages, and possibly the new contents),
+but also returns undef for read-only access if no ID3v2 tag is
+present.
+
+=item have_id3v2_frame
+
+  $have_it = $mp3->have_id3v2_frame($fname, $descrs, $langs);
+
+Returns TRUE the specified frame(s) exist; has the same API as
+L<MP3::Tag::ID3v2::frame_have> (args are frame name, list of wanted
+Descriptors, list of wanted Languages).
+
+=item get_id3v2_frame_ids
+
+  $h = $mp3->get_id3v2_frame_ids();
+  print "  $_ => $h{$_}" for keys %$h;
+
+Returns a hash reference with the short names of ID3v2 frames present
+in the tag as keys (and long description of the meaning as values), or
+FALSE if no ID3v2 tag is present.  See
+L<MP3::Tags::ID3v2::get_frame_ids> for details.
+
+=cut
+
+sub select_id3v2_frame ($$;@) {
+    my ($self) = (shift);
+    $self->get_tags;
+    if (not exists $self->{ID3v2}) {
+	return if @_ <= 3 or not defined $_[3];	# Read access, or deletion
+	$self->new_tag("ID3v2");
+    }
+    $self->{ID3v2}->frame_select(@_);
+}
+
+sub have_id3v2_frame ($$;@) {
+    my ($self) = (shift);
+    $self->get_tags;
+    return if not exists $self->{ID3v2};
+    $self->{ID3v2}->frame_have(@_);
+}
+
+sub get_id3v2_frame_ids ($$) {
+    my ($self) = (shift);
+    $self->get_tags;
+    return if not exists $self->{ID3v2};
+    $self->{ID3v2}->get_frame_ids(@_);
 }
 
 =item interpolate
@@ -797,9 +883,13 @@ expands to non-empty string.
 
 =item *
 
-Strings C<aC>, C<tT>, C<cC>, C<cT> are replaced for collection artist,
+Strings C<aC>, C<tT>, C<cC>, C<cT> are replaced by the collection artist,
 track title, collection comment, and track comment as obtained from
 CDDB_File.
+
+=item *
+
+Strings C<ID3v1> and C<ID3v2> are replaced by the whole ID3v1/2 tag.
 
 =item *
 
@@ -923,29 +1013,37 @@ sub interpolate {
 	    next unless $1 ? !$have : $have;
 	    ($str = $3) =~ s/\\([\\{}])/$1/g;
 	    $str = $self->interpolate($str);
+	} elsif ($what eq '{' and $pattern =~ s/^ID3v1}//) {
+	    return '' unless $self->{ID3v1};
+	    $str = $self->{ID3v1}->as_bin;
 	} elsif ($what eq '{') {	# id3v2 stuff
-	    unless ($self->{ID3v2}) {
+	    $pattern =~ s/^((?:[^\\{}]|\\[\\{}])*)}// or die "Mismatched {} in pattern `$pattern'";
+	    $what = $1;
+	    unless ($self->{ID3v2} or $what =~ /^!/) {
 		die "No ID3v2 present" if $self->get_config('id3v2_missing_fatal');
 		return '';
 	    }
-	    $pattern =~ s/^((?:[^\\{}]|\\[\\{}])*)}// or die "Mismatched {} in pattern `$pattern'";
-	    $what = $1;
-	    if ($what =~ /^\w{4}\d*$/) {
-		$str = $self->{ID3v2}->get_frame($what);
+	    if ($what eq 'ID3v2') {
+		return '' unless $self->{ID3v2};
+		$str = $self->{ID3v2}->as_bin;
+	    } elsif ($what =~ /^\w{4}(?:\d{2,})?$/) {
+		(undef, $str) = $self->get_id3v2_frames($what);
+		$str = $str->{_Data} if $str and ref $str and exists $str->{_Data};
 	    } elsif ($what =~ /^(\w{4})(?:\(([^)]*)\))?(?:\[([^]]*)\])?$/) {
 		my $langs = defined $2 ? [split /,/, $2, -1] : undef;
 		my ($fname, $shorts) = ($1, $3);
-		$str = $self->{ID3v2}->frame_select($fname, $shorts, $langs);
-	    } elsif ($what =~ /^(!)?(\w{4}\d*):(.*)/s) {
-		$ids = $self->{ID3v2}->get_frame_ids unless $ids;
-		my $have = exists $ids->{$2};
+		$str = $self->select_id3v2_frame($fname, $shorts, $langs);
+	    } elsif ($what =~ /^(!)?(\w{4}(?:\d{2,})?):(.*)/s) {
+		$ids = $self->get_id3v2_frame_ids || ''
+		    unless defined $ids; # Cache the value
+		my $have = $ids && exists $ids->{$2};
 		next unless $1 ? !$have : $have;
 		($str = $3) =~ s/\\([\\{}])/$1/g;
 		$str = $self->interpolate($str);
 	    } elsif ($what =~ /^(!)?(\w{4})(?:\(([^)]*)\))?(?:\[([^]]*)\])?:(.*)$/s) {
 		my $langs = defined $3 ? [split /,/, $3, -1] : undef;
 		my ($fname, $shorts) = ($2, $4);
-		my $have = $self->{ID3v2}->frame_have($fname, $shorts, $langs);
+		my $have = $self->have_id3v2_frame($fname, $shorts, $langs);
 		next unless $1 ? !$have : $have;
 		($str = $5) =~ s/\\([\\{}])/$1/g;
 		$str = $self->interpolate($str);
@@ -1394,6 +1492,7 @@ calls.
 sub update_tags {
     my ($mp3, $data) = (shift, shift);
 
+    $mp3->get_tags;
     $data = $mp3->autoinfo('from') unless defined $data;
 
     $mp3->new_tag("ID3v1") unless exists $mp3->{ID3v1};
@@ -1431,6 +1530,37 @@ sub DESTROY {
 
 =pod
 
+=head1 EXAMPLE SCRIPTS
+
+Some example scripts come with this module:
+
+=over
+
+=item mp3info2
+
+perform command line manipulation of audio tags (and more!);
+
+=item audio_rename
+
+rename audio files according to associated tags (and more!);
+
+=item type_mp3_dir
+
+write LaTeX files suitable for CD covers and normal-size sheet
+descriptions of hierarchy of audio files;
+
+=item mp3_total_time
+
+Calculate total duration of audio files;
+
+=item eat_wav_mp3_header
+
+remove WAV headers from MP3 files in WAV containers.
+
+=back
+
+(Last two do not use these modules!)
+
 =head1 SEE ALSO
 
 L<MP3::Tag::ID3v1>, L<MP3::Tag::ID3v2>, L<MP3::Tag::File>,
@@ -1438,7 +1568,7 @@ L<MP3::Tag::ParseData>, L<MP3::Tag::Inf>, L<MP3::Tag::CDDB_File>.
 
 =head1 COPYRIGHT
 
-Copyright (c) 2000-2004 Thomas Geffert.  All rights reserved.
+Copyright (c) 2000-2004 Thomas Geffert, Ilya Zakharevich.  All rights reserved.
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the Artistic License, distributed

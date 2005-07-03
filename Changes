@@ -1,15 +1,47 @@
-Connect parts of comment by \n if \n is already present there.
+Release Name: 0.95
+=======================
 
-`Recorded: 1980,1985,1992' was not recognized.
+After removing several of repeated frames, get_frame(s) could get confused.
+So could the code using get_frame(s).  Now better documented, and fixed.
 
-Allow date only at start/end of the comment.
+New method ->is_modified() of ID3v2.
+
+New method ->as_bin() of ID3v1 and ID3v2.
+
+New methods ->is_id3v2_modified(), ->get_id3v2_frames(), ->select_id3v2_frame(),
+->have_id3v2_frame(), ->get_id3v2_frame_ids() of MP3::Tag.
+
+Some `next's needed to be replaced by `return' in mp3info2 and audio_rename.
+
+mp3info2 would not decide that an edit is not needed if an ID3v2 frame was
+modified directly.
+
+Avoid re-parsing by ParseData more aggressively (10x speedup in one complicated
+real-life example).
+
+set_id3v2_frame() and update_tags() were assuming that get_tags() was already
+called.
+
+File->write() could lead to disaster with -l.		!!!!
+
+New options 'b', 'B', 'o', 'O', 'D' for ParseData.  With 'n', 'l' ParseData
+does not ignore empty trailing lines any more.
+
+New %-interpolations: %{ID3v1} for the tag as a whole, same for ID3v2.
+
+Be more strict during interpolation: do not recognize WORD1 as a valid short
+name of ID3v2 frame.
+
+Two new example scripts: mp3_total_time.pl, eat_wav_mp3_header.pl.
+
+Mention example scripts in documentation of MP3::Tag.
 
 Release Name: 0.94
 =======================
 
 The example of the "long" form of ID3v2-comment setting API has arguments swapped.
 
-New methods ->comment_select(), ->comment_have() of ID3v2.
+New methods ->frame_select(), ->frame_have() of ID3v2.
 
 New methods ->pure_filetags() and ->update_tags() of MP3::Tag.
 
@@ -71,6 +103,12 @@ New option -R (recurse into directories) for example scripts.
 New example script type_mp3_dir to produce a TeX file with contents of
 directories.  (Put files `.content_comment' into a directory to include comments
 specific for the directory layout.)
+
+Connect parts of comment by \n if \n is already present there.
+
+`Recorded: 1980,1985,1992' was not recognized.
+
+Allow date only at start/end of the comment.
 
 Release Name: 0.92
 =======================

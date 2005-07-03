@@ -24,6 +24,8 @@ examples/mp3info2.pl
 examples/tagged.pl
 examples/tagit.pl
 examples/type_mp3_dir.pl
+examples/mp3_total_time.pl
+examples/eat_wav_mp3_header.pl 
 test.mp3
 t/mp3tag.t
 t/set_v2.t

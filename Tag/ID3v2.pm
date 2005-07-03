@@ -12,7 +12,7 @@ use File::Basename;
 
 use vars qw /%format %long_names %res_inp @supported_majors %v2names_to_v3 $VERSION @ISA/;
 
-$VERSION="0.94";
+$VERSION="0.95";
 @ISA = 'MP3::Tag::__hasparent';
 
 # ignore different $\ settings, otherwise tags may not be written correctly
@@ -271,8 +271,11 @@ with all data (which might be binary), and $name the long frame name.
 See also L<MP3::Tag::ID3v2-Data> for a list of all supported frames, and
 some other explanations of the returned data structure.
 
-If more than one frame with name $ID is present, @rest contains $info fields
-for all consequent frames with the same name.
+If more than one frame with name $ID is present, @rest contains $info
+fields for all consequent frames with the same name.  Note that after
+removal of frames there may be holes in the list of frame names (as in
+C<FRAM FRAM01 FRAM02>) in the case when multiple frames of the given
+type were present; the removed frames are returned as C<undef>.
 
 ! Encrypted frames are not supported yet !
 
@@ -283,14 +286,16 @@ for all consequent frames with the same name.
 sub get_frame {
     my ($self, $fname, $raw)=@_;
     $self->get_frame_ids() unless exists $self->{frameIDs};
-    return unless exists $self->{frames}->{$fname};
-    my $frame=$self->{frames}->{$fname};
     my ($e, @extra) = 0;				# More frames follow?
     $e = $self->{extra_frames}->{$fname} || 0
-            if wantarray and $self->{extra_frames};
+            if wantarray and $self->{extra_frames} and length $fname == 4;
     @extra = map scalar $self->get_frame((sprintf "%s%02d", $fname, $_), $raw),
             1..$e;
-    $fname = substr ($fname, 0 ,4);
+    $e = grep defined, @extra;
+    my $frame=$self->{frames}->{$fname};
+    return unless defined $frame or $e;
+    $fname = substr ($fname, 0, 4);
+    return (undef, $long_names{$fname}, @extra) unless defined $frame;
     my $start_offset=0;
     if ($frame->{flags}->{encryption}) {
 	warn "Frame $fname: encryption not supported yet\n" ;
@@ -532,6 +537,28 @@ sub get_frames {
 }
 
 
+=item as_bin()
+
+  $tag2 = $id3v2->as_bin($ignore_error, $update_file);
+
+Returns the the current content of the ID3v2 tag as a string good to
+write to a file; it contains all the necessary footers and headers.
+
+If $ignore_error is TRUE, the frames the module does not know how to
+write are skipped; otherwise it is an error to have such a frame.
+Returns undef on error.
+
+If the optional argument $update_file is TRUE, an additional action is
+performed: if the audio file does not contain an ID3v2 tag, or the tag
+in the file is smaller than the built ID3v2 tag, the necessary
+0-padding is inserted before the audio content of the file so that it
+is able to accomodate the build tag (and the C<tagsize> field of
+$id3v2 is updated correspondingly); in any case the header length of
+$tag2 is set to reflect the space in the beginning of the audio file.
+Keep in mind that the actual length of the string $tag2 is not
+modified, so if it is smaller than the reserved place in the file, one
+needs to add some 0 padding at the end.
+
 =item write_tag()
 
   $id3v2->write_tag($ignore_error);
@@ -563,8 +590,8 @@ If the tag is written successfully, 1 is returned.
 
 =cut
 
-sub write_tag {
-    my ($self,$ignore_error) = @_;
+sub as_bin ($;$$) {
+    my ($self, $ignore_error, $update_file) = @_;
 
     if ($self->{major}>4) {
 	    warn "Only writing of ID3v2.3 (and some tags of v2.4) is supported. Cannot convert ID3v".
@@ -574,8 +601,9 @@ sub write_tag {
 
     # which order should tags have?
 
-    my $tag_data = build_tag($self, $ignore_error);
-    return 0 unless defined $tag_data;
+    $self->get_frame_ids;
+    my $tag_data = $self->build_tag($ignore_error);
+    return unless defined $tag_data;
 
     # perhaps search for first mp3 data frame to check if tag size is not
     # too big and will override the mp3 data
@@ -583,47 +611,54 @@ sub write_tag {
     #ext header are not supported yet
     my $flags = chr(0);
     $flags = chr(128) if $tag_data =~ s/\xFF(?=[\x00\xE0-\xFF])/\xFF\x00/g; # sync
+    $tag_data .= "\0"		# Terminated by 0xFF?
+	if length $tag_data and chr(0xFF) eq substr $tag_data, -1, 1;
     my $taglen = length $tag_data;
 
     my $header = 'ID3' . chr(3) . chr(0);
 
-    # actually write the tag
-    my $mp3obj = $self->{mp3};
-
-    my $padding = (length $tag_data and chr(0xFF) eq substr $tag_data, -1, 1);
-    my $padtail = $self->{tagsize} - length ($tag_data);
-    if ($padding > $padtail) {
-	# if creating new tag / increasing size add at least 2k padding
-	# add additional bytes to make new filesize multiple of 4k
-	my $filesize = (stat($mp3obj->{filename}))[7];
-	my $newsize = ($filesize + $taglen - $self->{tagsize} + 0x800);
-	$newsize = (($newsize + 0xFFF) & ~0xFFF);
-	$padding = $newsize - $taglen - ($filesize - $self->{tagsize});
-	my @insert_space = ([0, $self->{tagsize}+10, $taglen + $padding + 10]);
-	return undef unless (insert_space($self, \@insert_space)==0);
-        $padtail = 0;				# 0s written by insert_space...
-	$self->{tagsize} = $taglen + $padding;
-    } else {					# Keep tagsize
-	$padding = $padtail;			# Automatically >=0
+    if ($update_file) {
+	if ($self->{tagsize} < $taglen) {
+	    # if creating new tag / increasing size add at least 2k padding
+	    # add additional bytes to make new filesize multiple of 4k
+	    my $mp3obj = $self->{mp3};
+	    my $filesize = (stat($mp3obj->{filename}))[7];
+	    my $newsize = ($filesize + $taglen - $self->{tagsize} + 0x800);
+	    $newsize = (($newsize + 0xFFF) & ~0xFFF);
+	    my $padding = $newsize - $taglen - ($filesize - $self->{tagsize});
+	    my @insert = [0, $self->{tagsize}+10, ($taglen += $padding) + 10];
+	    return undef unless insert_space($self, \@insert) == 0;
+	    $self->{tagsize} = $taglen;
+	}			# Else keep tagsize
     }
 
     #convert size to header format specific size
-    my $size = unpack('B32', pack ('N', $self->{tagsize}));
+    my $size = unpack('B32', pack ('N', $taglen));
     substr ($size, -$_, 0) = '0' for (qw/28 21 14 7/);
     $size= pack('B32', substr ($size, -32));
+    return "$header$flags$size$tag_data";
+}
+
+sub write_tag {
+    my ($self,$ignore_error) = @_;
+    my $osize = $self->{tagsize};
+    my $tag = $self->as_bin($ignore_error, 'update_file');
+    return 0 unless defined $tag;
+
+    my $padtail = $osize - length $tag;
+    $padtail = 0 if $padtail < 0;
+
+    # actually write the tag
+    my $mp3obj = $self->{mp3};
 
     $mp3obj->close;
-    if ($mp3obj->open("write")) {
-	    $mp3obj->seek(0,0);
-	    $mp3obj->write($header);
-	    $mp3obj->write($flags);
-	    $mp3obj->write($size);
-	    $mp3obj->write($tag_data);
-	    $mp3obj->write(chr(0) x $padtail) if $padtail;
-    } else {
-	    warn "Couldn't open file write tag!";
-	    return undef;
+    unless ($mp3obj->open("write")) {
+	warn "Couldn't open file write tag!";
+	return undef;
     }
+    $mp3obj->seek(0,0);
+    $mp3obj->write($tag);
+    $mp3obj->write(chr(0) x $padtail) if $padtail;
     return 1;
 }
 
@@ -781,6 +816,7 @@ sub add_frame {
     }
     $self->{frames}->{$fname} = {flags=>check_flags(0), major=>3,
 				 data=>$datastring };
+    $self->{modified}++;
     return $fname;
 }
 
@@ -828,7 +864,20 @@ sub remove_frame {
     $self->get_frame_ids() unless exists $self->{frameIDs};
     return undef unless exists $self->{frames}->{$fname};
     delete $self->{frames}->{$fname};
+    $self->{modified}++;
     return 1;
+}
+
+=item is_modified()
+
+  $id3v2->is_modified;
+
+Returns true if the tag was modified after it was created.
+
+=cut
+
+sub is_modified {
+    shift->{modified}
 }
 
 =pod
@@ -938,7 +987,7 @@ sub v2title_order {
 sub title {
     my $self = shift;
     if (@_) {
-	$self->remove_frame('TIT2') if defined $self->get_frame( "TIT2");
+	$self->remove_frame('TIT2'); # NOP if it is not there
 	return if @_ == 1 and $_[0] eq '';
 	return $self->add_frame('TIT2', @_);
     }
@@ -970,6 +1019,7 @@ sub _comment {
     my @info = get_frames($self, "COMM");
     shift @info;
     for my $comment (@info) {
+	next unless defined $comment; # Removed frames
 	next unless exists $comment->{Description} and not length $comment->{Description};
 	next if defined $language and (not exists $comment->{Language}
 				       or lc $comment->{Language} ne $language);
@@ -1003,6 +1053,7 @@ sub comment {
     my $c = -1;
     for my $comment (@info) {
 	++$c;
+	next unless defined $comment; # Removed frames
 	next unless exists $comment->{Description} and not length $comment->{Description};
 	next if defined $language and (not exists $comment->{Language}
 				       or lc $comment->{Language} ne lc $language);
@@ -1069,8 +1120,9 @@ sub _frame_select {
 		for my $f (@info) {
 		    $c++;
 		    push(@by_lang, [$c, $f])
-			if defined $f->{Language} and $l eq lc $f->{Language}
-			    or $l eq '';
+			if defined $f and (defined $f->{Language}
+					   and $l eq lc $f->{Language} 
+					   or $l eq '');
 		}
 	    }
 	}
@@ -1083,13 +1135,13 @@ sub _frame_select {
 	($c, my $frame) = @$cc;
 	push(@select, $cc), next unless defined $shorts;
 	push(@select, $cc)
-	    if defined $frame->{Description}
+	    if defined $frame and defined $frame->{Description}
 		 and grep $_ eq $frame->{Description}, @$shorts;
     }
     return scalar @select if $how;
     if (@_ < 3) {			# Read-only access
 	return '' unless @select;
-	my $res = $select[0][1];
+	my $res = $select[0][1]; # Only defined frames here...
 	my $c = keys %$res;
 	$c-- if exists $res->{Description} and defined $shorts;
 	$c-- if exists $res->{Language} and defined $languages;
@@ -2040,7 +2092,7 @@ ID3v2 standard - http://www.id3.org
 
 =head1 COPYRIGHT
 
-Copyright (c) 2000-2004 Thomas Geffert.  All rights reserved.
+Copyright (c) 2000-2004 Thomas Geffert, Ilya Zakharevich.  All rights reserved.
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the Artistic License, distributed

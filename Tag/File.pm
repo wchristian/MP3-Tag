@@ -5,7 +5,7 @@ use Fcntl;
 use File::Basename;
 use vars qw /$VERSION @ISA/;
 
-$VERSION="0.40";
+$VERSION="0.95";
 @ISA = 'MP3::Tag::__hasparent';
 
 =pod
@@ -89,6 +89,7 @@ sub close {
 sub write {
     my ($self, $data) = @_;
     if (exists $self->{FH}) {
+	local $\ = '';
 	print {$self->{FH}} $data;
     }
 }

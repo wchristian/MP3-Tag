@@ -1,4 +1,5 @@
 package Music_Translate_Fields;
+use strict;
 
 my %tr;
 
@@ -14,7 +15,7 @@ sub translate_tr ($) {
 
 sub translate_artist ($$) {
   my ($self, $a) = (shift, shift);
-  $ini_a = $a;
+  my $ini_a = $a;
   $a = $a->[0] if ref $a;		# [value, handler]
   my $tr_a = translate_tr $a;
   if (not $tr_a and $a =~ /(.*?)\s*,\s*(.*)/s) {	# Schumann, Robert
@@ -23,6 +24,20 @@ sub translate_artist ($$) {
   $a = $tr_a or return $ini_a;
   return ref $ini_a ? [$a, $ini_a->[1]] : $a;
 }
+
+sub translate_name ($$) {
+  my ($self, $n) = (shift, shift);
+  my $ini_n = $n;
+  $n = $n->[0] if ref $n;		# [value, handler]
+  $n =~ s/\bOp([.\s]\s*|.?(?=\d))/Op. /gi;
+  $n =~ s/\bN[or]([.\s]\s*|.?(?=\d))/No. /gi;	# nr12
+  $n =~ s/(\W)#\s*(?=\d)/${1}No. /gi;	# #12
+  $n =~ s/[.,;]\s*Op\./; Op./gi;	# #12
+  return ref $ini_n ? [$n, $ini_n->[1]] : $n;
+}
+
+*translate_album = \&translate_name;
+*translate_title = \&translate_name;
 
 my %aliases = (	Rachmaninov	=>	[qw(Rachmaninoff Rahmaninov)],
 		Tchaikovskiy 	=>	'Chaikovskiy',
@@ -33,6 +48,7 @@ my %aliases = (	Rachmaninov	=>	[qw(Rachmaninoff Rahmaninov)],
 		Prokofiev	=>	'Prokofev',
 		Stravinsky	=>	'Stravinskiy',
 		Scriabin	=>	'Skryabin',
+		Liszt		=>	'List',
 	      );
 
 for (<DATA>) {
@@ -67,7 +83,9 @@ for ('Frederic Chopin', 'Fryderyk Chopin', 'Joseph Haydn', 'J Haydn',
      'Sergei Prokofiev', 'Serge Prokofiev', 'Antonin Dvorák', 'Peter Tchaikovsky',
      'Sergei Rahmaninov', 'Piotyr Ilyich Tchaikovsky',
      'Aleksandr Skryabin', 'Aleksandr Mosolov',
-     'DIMITRI SCHOSTAKOVICH', 'Dmitri Schostakowitsch', 'Dmitri Shostakovich') {
+     'DIMITRI SCHOSTAKOVICH', 'Dmitri Schostakowitsch',
+     'Dmitri Shostakovich', 'Dmitry Shostakovich',
+     'Nicolas Rimsky-Korsakov') {
   my ($last) = (/(\w+)$/) or warn, die;
   $tr{lc $_} = $tr{lc $last};
 }
@@ -83,6 +101,7 @@ $tr{lc 'Wolfgang Amadei Mozart (1756-1791)'} = $tr{lc 'Mozart'};
 $tr{lc 'Eduard Grieg (1843-1907)'} = $tr{lc 'Grieg'};
 $tr{lc 'Antonin Dvorák (1841-1904)'} = $tr{lc 'Dvorák'};
 $tr{lc 'Antonin Dvorak (1841-1904)'} = $tr{lc 'Dvorák'};
+$tr{lc 'Nicolas Rimsky-Korsakov (1844-1908)'} = $tr{lc 'Rimsky-Korsakov'};
 
 1;
 __DATA__
@@ -176,6 +195,27 @@ Johann I Strauss (1804-1849)
 Johann II Strauss (1825-1899)
 Cesar Franck (1822-1890)
 Alexander Scriabin (1872-1915)
+Anton Webern (1883-1945)
+Edward Elgar (1857-1934)
+Mario Castelnuovo-Tedesco (1895-1968)
+Nicolai Medtner (1880-1951)
+Manuel de Falla (1876-1946)
+Joaquin Nin (1879-1949)
+Darius Milhaud (1892-1974)
+Anton Arensky (1861-1906)
+Nicolay Andreevich Rimsky-Korsakov (1844-1908)
+Erich Wolfgang Korngold (1897-1957)
+Pablo de Sarasate (1844-1908)
+Alexandre Tansman (1897-1986)
+Max Bruch (1838-1920)
+Henri Vieuxtemps (1820-1881)
+Ernst von Dohnanyi (1877-1960)
+Arthur Benjamin (1893-1960)
+Reinhold Gliere (1875-1956)
+Henryk Wieniawski (1835-1880)
+Giovanni Sgambati (1841-1914)
+William Walton (1902-1983)
+Louis Gruenberg (1884-1964)
 
 Alexander Mosolov (1900-1973)
 Andrey Osypovich Sychra (1773-1850)
@@ -201,6 +241,9 @@ Jacqueline du Pré (1945-1987)
 Yehudi Menuhin (1916-1999)
 Kathleen Ferrier (1912-1953)
 Thomas Beecham (1879-1961)
+Gregor Piatigorsky (1903-1976)
+Yascha Heifetz (1901-1987)
+Herbert von Karajan (1908-1989)
 
 Ivan Krylov (1769-1844)
 Samuil Marshak (1887-1964)

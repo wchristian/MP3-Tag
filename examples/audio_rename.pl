@@ -1,9 +1,8 @@
 #!/usr/bin/perl -w
 
 # Will rename .inf file too.
-$VERSION = 0.01;
+$VERSION = 0.02;
 
-use blib 'J:/test-programs-other/.cpan/tagged-CVS/work';
 use MP3::Tag;
 use Getopt::Std 'getopts';
 use File::Spec;
@@ -159,9 +158,9 @@ sub process_file ($) {
 		$name = File::Spec->catdir($name, $comp);
 	    }
 	}
-	print("... No change\n"), next if $f eq "$name$ext";
+	print("... No change\n"), return if $f eq "$name$ext";
 	print "  ==> `$name$ext'\n";
-	next if $opt{D};
+	return if $opt{D};
 	mkpath $dirname if defined $dirname and not -d $dirname;
 	undef $mp3;			# Close the file
 	rename $f, "$name$ext" or die "rename: $!";
@@ -176,7 +175,7 @@ sub process_file ($) {
 
 if ($opt{R}) {
   require File::Find;
-  File::Find::find({wanted => sub {next unless -f and /\.mp3$/i; process_file $_},
+  File::Find::find({wanted => sub {return unless -f and /\.mp3$/i; process_file $_},
 		    no_chdir => 1}, @f);
 } else {
   my $f;

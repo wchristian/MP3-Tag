@@ -126,26 +126,11 @@ EOC
 			(not defined $odata->{$k} or $data->{$k} ne $odata->{$k});
 	    }
 	}
-	$opt{u} and warn "No update needed\n" unless $modify;
-	next unless $modify and not $opt{D};	# Dry run
+	$opt{u} and warn "No update needed\n" unless $modify or $mp3->is_id3v2_modified;
+	return unless ($modify or $opt{u} and $mp3->is_id3v2_modified)
+	    and not $opt{D};		# Dry run
 
-	$mp3->new_tag("ID3v1") unless exists $mp3->{ID3v1};
-	my $elt;
-	for $elt (qw/title artist album year comment track genre/) {
-	    $mp3->{ID3v1}->$elt( $data->{$elt}->[0] )
-		if defined $data->{$elt} and $data->{$elt}->[1] ne 'ID3v1';
-	}				# Skip what is already there...
-	$mp3->{ID3v1}->write_tag;
-
-	next if $mp3->{ID3v1}->fits_tag($data) and not exists $mp3->{ID3v2};
-
-	$mp3->new_tag("ID3v2") unless exists $mp3->{ID3v2};
-	for $elt (qw/title artist album year comment track genre/) {
-	    $mp3->{ID3v2}->$elt( $data->{$elt}->[0] )
-		if defined $data->{$elt} and $data->{$elt}->[1] ne 'ID3v2';
-	}				# Skip what is already there...
-	# $mp3->{ID3v2}->comment($data->{comment}->[0]);
-	$mp3->{ID3v2}->write_tag;
+	$mp3->update_tags($data);
     } else {
 	print "Not found...\n";
     }
@@ -158,7 +143,7 @@ if ($opt{G}) {
 }
 if ($opt{R}) {
   require File::Find;
-  File::Find::find({wanted => sub {next unless -f and /\.mp3$/i; process_file $_},
+  File::Find::find({wanted => sub {return unless -f and /\.mp3$/i; process_file $_},
 		    no_chdir => 1}, @f);
 } else {
   my $f;
@@ -382,6 +367,14 @@ C<comment> is of one of two forms:
 To set the specific MP3 frames, use
 
   mp3info2 -P "mi/@a/@{TCOM}///mi/@c/@{U0}; @{TPE2}; @{TPE3}/@{TPE2}; @{TPE3}" -R .
+
+To copy ID3 tags of MP3 files in the current directory to files in directory
+F</tmp/mp3> with the extension F<.tag> (and print "progress report"), use
+
+  mp3info2 -C autoinfo=ParseData,ID3v2,ID3v1 -p "@N@E\n" \
+	-@P "bODi,@{ID3v2}@{ID3v1},/tmp/mp3/@N.tag" -R .
+
+Since we did not use C<z> flag, MP3 files without tags are skipped.
 
 Finish by a very simple example: all that the pattern
 

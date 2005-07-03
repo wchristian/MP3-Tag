@@ -46,6 +46,10 @@ the string-to-parse is interpolated first;
 
 the string-to-parse is interpreted as the name of the file to read;
 
+=item C<B>
+
+the file should be read in C<binary> mode;
+
 =item C<n>
 
 the string-to-parse is interpreted as collection of lines, one per track;
@@ -67,15 +71,26 @@ the patterns are considered as regular expressions.
 
 one of the patterns must match.
 
+=item C<o>, C<O>, C<D>
+
+With C<o> or C<O> interpret the pattern as a name of file to output
+parse-data to.  With C<O> the name of output file is interpolated.
+When C<D> is present, intermediate directories are created.
+
+=item C<b>
+
+Do not strip the leading and trailing blanks.  (With output to file,
+the output is performed in binary mode too.)
+
 =item C<z>
 
 Do not ignore a field even if the result is a 0-length string.
 
 =back
 
-In any case, the resulting values have starting and trailing whitespace trimmed.
-(Actually, breaking into line is done using the configuration item
-C<parse_split>; it defaults to C<"\n">.)
+Unless C<b> option is given, the resulting values have starting and
+trailing whitespace trimmed.  (Actually, split()ing into lines is done
+using the configuration item C<parse_split>; it defaults to C<"\n">.)
 
 If the configuration item C<parse_data> has multiple options, the $strings
 which are interpolated will use information set by preceeding options;
@@ -130,6 +145,7 @@ sub parse_one {
     if ($flags =~ /f/) {
 	local *F;
 	open F, "< $data" or die "Can't open file `$data' for parsing: $!";
+	binmode F if $flags =~ /B/;
 	local $/;
 	my $d = <F>;
 	close F or die "Can't close file `$data' for parsing: $!";
@@ -138,23 +154,45 @@ sub parse_one {
     my @data = $data;
     if ($flags =~ /[ln]/) {
 	my $p = $self->get_config('parse_split')->[0];
-	@data = split $p, $data;
+	@data = split $p, $data, -1;
     }
     if ($flags =~ /n/) {
 	my $track = $self->{parent}->track or return;
 	@data = $data[$track - 1];
     }
+    for $data (@data) {
+	$data = $self->{parent}->interpolate($data) if $flags =~ /I/;
+	unless ($flags =~ /b/) {
+	    $data =~ s/^\s+//;
+	    $data =~ s/\s+$//;
+	}
+    }
     my $res;
     my @opatterns = @patterns;
+
+    if ($flags =~ /[oO]/) {
+	@patterns = map $self->{parent}->interpolate($_), @patterns
+	    if $flags =~ /O/;
+	return unless length $data[0] or $flags =~ /z/;
+	for my $file (@patterns) {
+	    if ($flags =~ /D/ and $file =~ m,(.*)[/\\],s) {
+		require File::Path;
+		File::Path::mkpath($1);
+	    }
+	    open OUT, "> $file" or die "open(`$file') for write: $!";
+	    binmode OUT if $flags =~ /b/;
+	    local ($/, $,) = ('', '');
+	    print OUT $data[0];
+	    close OUT or die "close(`$file') for write: $!";
+	}
+	return;
+    }
     if ($flags =~ /R/) {
 	@patterns = map $self->{parent}->parse_rex_prepare($_), @patterns;
     } else {
 	@patterns = map $self->{parent}->parse_prepare($_), @patterns;
     }
     for $data (@data) {
-	$data = $self->{parent}->interpolate($data) if $flags =~ /I/;
-	$data =~ s/^\s+//;
-	$data =~ s/\s+$//;
 	my $pattern;
 	for $pattern (@patterns) {
 	    last if $res = $self->{parent}->parse_rex_match($pattern, $data);
@@ -183,7 +221,7 @@ sub parse {
     my ($self,$what) = @_;
 
     return $self->{parsed}->{$what}	# Recalculate during recursive calls
-	if not $self->{parsing} and exists $self->{parsed}->{$what};
+	if not $self->{parsing} and exists $self->{parsed};
 
     my $data = $self->get_config('parse_data');
     return unless $data and @$data;
@@ -217,17 +255,15 @@ sub parse {
 	    my $r = $res->{$k};
 	    $r = undef unless length $r or $self->get_config('id3v2_frame_empty_ok')->[0];
 	    if (defined $r or $self->{parent}->_get_tag('ID3v2')) {
-	      $self->{parent}->new_tag("ID3v2")
-		unless $self->{parent}->_get_tag('ID3v2');
-	      $self->{parent}->_get_tag('ID3v2')->frame_select($fname, $shorts, $langs, $r)
+	      $self->{parent}->select_id3v2_frame($fname, $shorts, $langs, $r)
 	    }
 	  }
 	}
 	# later ones overwrite earlier
 	%res = (%res, %$res) if $res;
     }
-    return unless keys %res;
     $self->{parsed} = \%res;
+    # return unless keys %res;
     return $self->{parsed}->{$what};
 }
 
