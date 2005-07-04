@@ -217,7 +217,7 @@ sub parse {
 	    $c1 = $c2;
 	}
     }
-    if ($cat =~ /^\d+$/) {
+    if (defined $cat and $cat =~ /^\d+$/) {
 	require MP3::Tag::ID3v1;
 	$cat = $MP3::Tag::ID3v1::winamp_genres[$cat] if $cat < scalar @MP3::Tag::ID3v1::winamp_genres;
     }

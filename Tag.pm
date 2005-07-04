@@ -52,7 +52,7 @@ use vars qw/$VERSION %config/;
 	    parse_minmatch => [0],
 	  );
 
-$VERSION="0.96";
+$VERSION="0.97";
 
 =pod
 
@@ -99,9 +99,10 @@ MP3::Tag - Module for reading tags of MP3 audio files
 
   $mp3->close();
 
-=head1 AUTHOR
+=head1 AUTHORS
 
 Thomas Geffert, thg@users.sourceforge.net
+Ilya Zakharevich, ilyaz@cpan.org
 
 =head1 DESCRIPTION
 
@@ -564,7 +565,7 @@ Current default: FALSE.
 =item  id3v2_frame_empty_ok
 
 When setting the individual id3v2 frames via ParseData, do not
-remove the frames set to an empty string.  Default 0.
+remove the frames set to an empty string.  Default 0 (empty means 'remove').
 
 =item  translate_*
 
@@ -582,10 +583,12 @@ interpolation results in an empty string.
 
 =item parse_minmatch
 
-may be 0, 1, or a list of free-form escapes which are matched
-non-greedily by parse() and friends.  E.g., parsing 
+may be 0, 1, or a list of C<%>-escapes (matching any string) which should
+matched non-greedily by parse() and friends.  E.g., parsing 
 C<'Adagio - Andante - Piano Sonata'> via C<'%t - %l'> gives different results
-for the settings 0 and 1.
+for the settings 0 and 1; note that greediness of C<%l> does not matter,
+thus the value of 1 is equivalent for the value of C<t> for this particular
+pattern.
 
 =item *
 
@@ -632,7 +635,8 @@ changes are not inherited.)
 
 sub get_config ($$) {
     my ($self, $item) = @_;
-    ($self->{config} ||= {%config})->{lc $item};
+    my $config = ref $self ? ($self->{config} ||= {%config}) : \%config;
+    $config->{lc $item};
 }
 
 =item pure_filetags
@@ -690,11 +694,11 @@ sub set_user ($$$) {
 
 =item set_id3v2_frame
 
-  $mp3->set_id3v2_frame($name, $value1, $value2);
+  $mp3->set_id3v2_frame($name, @values);
 
 When called with only $name as the argument, removes the specified
 frame (if it existed).  Otherwise sets the frame passing the specified
-values to the add_frame() function of MP3::Tag::ID3v2.
+@values to the add_frame() function of MP3::Tag::ID3v2.
 
 =cut
 
@@ -743,13 +747,13 @@ sub is_id3v2_modified ($$;@) {
 
 =item select_id3v2_frame
 
-  $frame = $mp3->select_id3v2_frame($fname, $descrs, $langs);
+  $frame = $mp3->select_id3v2_frame($fname, $descrs, $langs [, $VALUE]);
 
 Returns the specified frame(s); has the same API as
 L<MP3::Tag::ID3v2::frame_select> (args are frame name, list of wanted
-Descriptors, list of wanted Languages, and possibly the new contents),
-but also returns undef for read-only access if no ID3v2 tag is
-present.
+Descriptors, list of wanted Languages, and possibly the new contents - with
+C<undef> meaning deletion).  For read-only access it returns C<undef> if no
+ID3v2 tag is present.
 
 =item have_id3v2_frame
 
@@ -811,6 +815,7 @@ character).  MINWIDTH and MAXWIDTH should be numbers.
 
 The one-letter ESCAPEs are replaced by
 
+		% => literal '%'
 		t => title
 		a => artist
 		l => album
@@ -896,7 +901,7 @@ Strings C<ID3v1> and C<ID3v2> are replaced by the whole ID3v1/2 tag.
 Strings of the form C<FRAM(list,of,languages)[description]'> are
 replaced by the first FRAM frame with the descriptor "description" in
 the specified comma-separated list of languages.  Instead of a
-language (ID3v2 uses 3-char ISO-639-2 language notations) one can use
+language (ID3v2 uses lowercase 3-char ISO-639-2 language notations) one can use
 a string of the form C<#Number>; e.g., C<#4> means 4th FRAM frame, or
 FRAM04.  Empty string for the language means any language.)  Works as
 a condition for conditional interpolation too.
@@ -905,8 +910,8 @@ Any one of the list of languages and the disription can be omitted;
 this means that either the frame FRAM has no language or descriptor
 associated, or no restriction should be applied.
 
-Some applications denote unknown language as C<XXX> (in uppercase!).
-The language match is case-insensitive.
+Unknown language should be denoted as C<XXX> (in uppercase!).  The language
+match is case-insensitive.
 
 =over
 
@@ -991,7 +996,7 @@ sub interpolate {
     my $res = "";
     my $ids;
 
-    while ($pattern =~ s/^([^%]+)|^%(?:(?:\((.)\)|([^-.1-9]))?(-)?(\d+))?(?:\.(\d+))?([talygcnfFeEABDNvLrqQSmsCpou{%])//s) {
+    while ($pattern =~ s/^([^%]+)|^%(?:(?:\((.)\)|([^-.1-9%a-zA-Z]))?(-)?(\d+))?(?:\.(\d+))?([talygcnfFeEABDNvLrqQSmsCpou{%])//s) {
 	$res .= $1, next if defined $1;
 	my ($fill, $left, $minwidth, $maxwidth, $what)
 	    = ((defined $2 ? $2 : $3), $4, $5, $6, $7);
@@ -1030,7 +1035,7 @@ sub interpolate {
 		(undef, $str) = $self->get_id3v2_frames($what);
 		$str = $str->{_Data} if $str and ref $str and exists $str->{_Data};
 	    } elsif ($what =~ /^(\w{4})(?:\(([^)]*)\))?(?:\[([^]]*)\])?$/) {
-		my $langs = defined $2 ? [split /,/, $2, -1] : undef;
+		my $langs = defined $2 ? [split /,/, $2, -1] : '';
 		my ($fname, $shorts) = ($1, $3);
 		$str = $self->select_id3v2_frame($fname, $shorts, $langs);
 	    } elsif ($what =~ /^(!)?(\w{4}(?:\d{2,})?):(.*)/s) {
@@ -1194,7 +1199,7 @@ sub parse_rex_match {	# pattern = [Original, Interpolated, Fields, NumExact]
     return unless @{$pattern->[2]} or $pattern->[3];
     my @vals = ($data =~ /$pattern->[1]()/s) or return;	# At least 1 group
     my $cv = @vals - 1;
-    die "Unsupported regular expression `$pattern->[0]' (catching parens? Got $cv vals) (converted to `$pattern->[1]')"
+    die "Unsupported %-regular expression `$pattern->[0]' (catching parens? Got $cv vals) (converted to `$pattern->[1]')"
 	unless $cv == @{$pattern->[2]};
     my ($c, %h) = 0;
     for my $k ( @{$pattern->[2]} ) {
@@ -1205,7 +1210,7 @@ sub parse_rex_match {	# pattern = [Original, Interpolated, Fields, NumExact]
     for $c (keys %h) {
 	$h{$c} = join $j, grep length, @{ $h{$c} };
     }
-    $h{track} =~ s/^0// if exists $h{track};
+    $h{track} =~ s/^0+(?=\d)// if exists $h{track};
     return \%h;
 }
 
@@ -1454,8 +1459,12 @@ for my $elt (keys %mp3info) {
   my $k = $mp3info{$elt};
   *$elt = sub (;$) {
     require MP3::Info;
+    $MP3::Info::try_harder = 1;
     my $self = shift;
-    (MP3::Info::get_mp3info($self->abs_filename))->{$k}
+    my $info = MP3::Info::get_mp3info($self->abs_filename);
+    die "Didn't get valid data from MP3::Info for `".($self->abs_filename)."': $@"
+      unless defined $info;
+    $info->{$k}
   }
 }
 
@@ -1560,6 +1569,19 @@ remove WAV headers from MP3 files in WAV containers.
 =back
 
 (Last two do not use these modules!)
+
+Some more examples:
+
+  # Convert from one (non-standard-conforming!) encoding to another
+  perl -MMP3::Tag -MEncode -wle '
+    my @fields = qw(artist album title comment);
+    for my $f (@ARGV) {
+      print $f;
+      my $t = MP3::Tag->new($f) or die;
+      $t->update_tags(
+	{ map { $_ => encode "cp1251", decode "koi8-r", $t->$_() }, @fields }
+      );
+    }' list_of_audio_files
 
 =head1 SEE ALSO
 

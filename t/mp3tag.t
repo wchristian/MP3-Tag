@@ -113,8 +113,8 @@ ok($v2 && !defined $v2->_comment('GER'), "Checking no GER comment");
 ok($v2 && $v2->_comment('ENG') eq 'Another test...', "Checking ENG comment");
 ok($v2 && $mp3->comment() eq 'Another test...', "Checking ID3 comment");
 
-my $s = $mp3->interpolate('Title: `%012.12t\'; %{TLAN} %{TLAN01: have %\{TLAN01\}} %{!TLAN02:, do not have TLAN02}');
-ok($s && $s eq "Title: `000000000New'; ENG  have GER , do not have TLAN02", "Checking ID3 interpolation");
+my $s = $mp3->interpolate('%%02t_Title: `%012.12t\'; %{TLAN} %{TLAN01: have %\{TLAN01\}} %{!TLAN02:, do not have TLAN02}');
+ok($s && $s eq "%02t_Title: `000000000New'; ENG  have GER , do not have TLAN02", "Checking ID3 interpolation");
 #back to original tag
 open (FH, ">test2.mp3") or warn;
 binmode FH;

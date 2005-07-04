@@ -7,7 +7,7 @@
 # Change 1..1 below to 1..last_test_to_print .
 # (It may become useful if the test is moved to ./t subdirectory.)
 
-BEGIN { $| = 1; print "1..82\n"; }
+BEGIN { $| = 1; print "1..83\n"; }
 END {print "MP3::Tag not loaded :(\n" unless $loaded;}
 use MP3::Tag;
 $loaded = 1;
@@ -39,6 +39,7 @@ ok($mp3->interpolate('%{COMM(RUS,eng)[foo]}') eq 'Testing...', "Got tag via %{CO
 ok($mp3->interpolate('%{COMM(rus,ENG)[foo]}') eq 'Testing...', "Got tag via %{COMM(rus,ENG)[foo]}");
 ok($mp3->interpolate('%{COMM(rus,EN,#0)[foo]}') eq 'Testing...', "Got tag via %{COMM(rus,EN,#0)[foo]}");
 ok($mp3->interpolate('%{COMM(rus,EN,#1,)[foo]}') eq 'Testing...', "Got tag via %{COMM(rus,EN,#1,)[foo]}");
+ok($mp3->interpolate('%{COMM[foo]}') eq 'Testing...', "Got tag via %{COMM[foo]}");
 ok($mp3->interpolate('%{COMM(rus,EN,#1)[foo]}') eq '', "No tag via %{COMM(rus,EN,#1)[foo]}");
 #my $r = $mp3->interpolate('%{!COMM(rus,EN,#1)[foo]:<%\{COMM(rus,EN,#1,)[foo]\}>}');
 #warn "'$r'\n";

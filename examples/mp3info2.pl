@@ -54,6 +54,8 @@ for my $elt ( qw( title track artist album comment year genre ) ) {
 
 my @parse_data;
 if (defined $opt{P}) {
+  die 'Option -P requires ParseData in autoinfo'
+    unless grep $_ eq 'ParseData', @{ MP3::Tag->get_config('autoinfo') };
   my ($c) = ($opt{P} =~ /^\w*(\W)/s);
   $c = quotemeta $c if defined $c;
   $c = '(?!)' unless defined $c;		# Never match
@@ -375,6 +377,16 @@ F</tmp/mp3> with the extension F<.tag> (and print "progress report"), use
 	-@P "bODi,@{ID3v2}@{ID3v1},/tmp/mp3/@N.tag" -R .
 
 Since we did not use C<z> flag, MP3 files without tags are skipped.
+
+Now suppose that there are two parallel file hierarchies of audio files,
+and of lyrics: audio files are in F<audio/dir_name/audio_name.mp3> with
+corresponding lyrics file in F<text/dir_name/audio_name.mp3>.  To attach
+lyrics to MP3 files (in C<COMM> frame with description C<lyrics> in language
+C<eng>), call
+
+  mp3info2 -@P "fim;../text/@{d0}/@B.txt;@{COMM(eng)[lyrics]}" -Ru .
+
+inside the directory F<audio>.
 
 Finish by a very simple example: all that the pattern
 

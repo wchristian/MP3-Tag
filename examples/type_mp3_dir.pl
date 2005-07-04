@@ -112,8 +112,8 @@ sub to_duration ($) {
   $s -= $h*3600;
   my $m = int($s / 60);
   $s -= $m*60;
-  return sprintf "%dh%02d''%02d'", $h, $m, $s if $h;
-  return sprintf "%d''%02d'", $m, $s;
+  return sprintf "%d\\hourmark{}%02d'%02d''", $h, $m, $s if $h;
+  return sprintf "%d'%02d''", $m, $s;
 }
 
 sub cmp_u ($$) {
@@ -185,6 +185,7 @@ sub print_this_mp3 ($) {
 # Callback for find():
 sub print_mp3 {
   return unless -f $_ and /\.mp3$/i;
+  #print STDERR "... $_\n";
   my $tag = MP3::Tag->new($_);
   my @parts = split m<[/\\]>, $File::Find::dir;
   shift @parts if @parts and $parts[0] eq '.';
@@ -203,7 +204,7 @@ sub print_mp3 {
 
   if ($opt{y}) {
     my $year = $tag->year;
-    $year =~ s/(\d)-(?=\d{4})/$1--$2/g;
+    $year =~ s/(\d)-(?=\d{4})/$1--/g;
     # Contract long dates (with both ',' and '-')
     if ($year and $year =~ /,/ and $year =~ /-/ and not $opt{Y}) {
       $year =~ s/-?(-\d\d?\b)+//g;	# Remove month etc
@@ -221,6 +222,7 @@ sub print_mp3 {
 my $common1 = <<'EOP';
 %\pretolerance=-1%	Always hyphenation: always
 
+\def\hourmark#1{$\mathsurround0pt{}^{\scriptscriptstyle\circ}$}
 \def\preauthor{\pagebreak[1]\bgroup\centering\bf}
 \def\postauthor{\par\egroup}
 \def\pretitle{\bgroup}
@@ -348,6 +350,23 @@ for my $out (grep defined, $out_envelop_cdcover, $out_envelop_text) {
 EOP
 }
 
+
+print $out_envelop_cdcover <<'EOP' if defined $out_envelop_cdcover;
+%\end{multicols}
+\end{bookletsheets}
+%\end{bookletsheetsTwo}
+%\end{singlesheet}
+\end{document}
+EOP
+
+print $out_envelop_text <<'EOP' if defined $out_envelop_text;
+\end{multicols}
+\end{document}
+EOP
+
+close $_ or warn "Error closing wrapper for write: $!"
+  for grep defined, $out_envelop_cdcover, $out_envelop_text;
+
 my $d = Cwd::cwd;
 for (@ARGV) {
   $had_subdir = 0;
@@ -372,16 +391,3 @@ for (@ARGV) {
   print_this_mp3({});	# Flush the postponed data
   chdir $d or die;
 }
-
-print $out_envelop_cdcover <<'EOP' if defined $out_envelop_cdcover;
-%\end{multicols}
-\end{bookletsheets}
-%\end{bookletsheetsTwo}
-%\end{singlesheet}
-\end{document}
-EOP
-
-print $out_envelop_text <<'EOP' if defined $out_envelop_text;
-\end{multicols}
-\end{document}
-EOP

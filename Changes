@@ -1,4 +1,42 @@
-Release Name: 0.95
+Release Name: 0.97
+=======================
+
+Better docs for add_frame(), set_id3v2_frame(), for configuration parameter
+id3v2_frame_empty_ok, parse_minmatch.
+
+frame_select() now returns undef if no frame is found; likewise for
+select_id3v2_frame(); better behaviour with very low number of arguments.
+
+When interpolating %{COMM[text]}, use lang='', not undef (otherwise
+answer is returned as hash).
+
+Interpolation would interpret second % in '%%02n' as fill character.
+
+Flag 'b' of ParseData would disable whitespace stripping from the data to
+match, but not from matches.
+
+->get_config() would not work as class method.
+
+Ask MP3::Info to 'try_harder'; needed with very long ID3v2 headers...
+
+Decoding Unicode was not flexible enough: now configured by two environment
+variables: MP3TAG_DECODE_UNICODE (default 1) to enable decoding; the
+target of decoding is determined by MP3TAG_DECODE_UTF8: if 0 (default), decoded
+values are byte-encoded UTF-8 (every Perl character contains a byte of
+UTF-8 encoded string); otherwise it is a native Perl Unicode string.
+
+Language=XXX is the *official* designation of unknown language.
+
+Make dependency for ID3v2-Data.pod on Tag/ID3v2.pm.
+
+Warn in mp3info2 if -P is used without ParseData in autoinfo.  Document
+example of attaching lyrics to audio file.
+
+CDDB_File could generate warnings for files without DGENRE field.
+
+type_mp3_dir: new macro \hourmark, exchange ' and '' for minutes/sec.
+
+Release Name: 0.96
 =======================
 
 A bug fix by Ben Bennett for 2.4 support.

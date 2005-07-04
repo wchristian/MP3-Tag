@@ -3,7 +3,7 @@ package MP3::Tag::ParseData;
 use strict;
 use vars qw /$VERSION @ISA/;
 
-$VERSION="0.03";
+$VERSION="0.97";
 @ISA = 'MP3::Tag::__hasparent';
 
 =pod
@@ -117,7 +117,7 @@ C<year> can be used to access the results of the parse.
 
 It is possible to set individual id3v2 frames; use %{TIT1} or
 some such.  Setting to an empty string deletes the frame if config
-parameter id3v2_frame_empty_ok is true.
+parameter C<id3v2_frame_empty_ok> is false.
 
 =cut
 
@@ -205,8 +205,10 @@ sub parse_one {
     }
     my $k;
     for $k (keys %$res) {
-	$res->{$k} =~ s/^\s+//;
-	$res->{$k} =~ s/\s+$//;
+	unless ($flags =~ /b/) {
+	  $res->{$k} =~ s/^\s+//;
+	  $res->{$k} =~ s/\s+$//;
+	}
 	delete $res->{$k} unless length $res->{$k} or $flags =~ /z/;
     }
     return unless $res and keys %$res;
@@ -247,7 +249,7 @@ sub parse {
 	      $self->{parent}->set_id3v2_frame($k, delete $res->{$k})
 	    } else {
 	      delete $res->{$k};
-	      $self->{parent}->set_id3v2_frame($k);
+	      $self->{parent}->set_id3v2_frame($k);	# delete
 	    }
 	  } elsif ($k =~ /^(\w{4})(?:\(([^)]*)\))?(?:\[([^]]*)\])?$/) {
 	    my $langs = defined $2 ? [split /,/, $2, -1] : undef;

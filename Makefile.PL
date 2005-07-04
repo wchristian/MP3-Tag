@@ -20,3 +20,10 @@ sub manifypods {
     $self->{MAN3PODS}->{'ID3v2-Data.pod'} = '$(INST_MAN3DIR)/MP3::Tag::ID3v2-Data.$(MAN3EXT)';
     $self->SUPER::manifypods(@_);
 }
+
+sub postamble {	# Not good enough: is done after .pod is moved to INST_LIB...
+  '
+ID3v2-Data.pod :: Tag/ID3v2.pm # pm_to_blib
+
+';
+}

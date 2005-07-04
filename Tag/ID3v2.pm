@@ -12,11 +12,13 @@ use File::Basename;
 
 use vars qw /%format %long_names %res_inp @supported_majors %v2names_to_v3 $VERSION @ISA/;
 
-$VERSION="0.96";
+$VERSION="0.97";
 @ISA = 'MP3::Tag::__hasparent';
 
-my $trustencoding = $ENV{MP3TAG_ENCODING};
+my $trustencoding = $ENV{MP3TAG_DECODE_UNICODE};
 $trustencoding = 1 unless defined $trustencoding;
+
+my $decode_utf8 = $ENV{MP3TAG_DECODE_UTF8};
 
 =pod
 
@@ -718,21 +720,18 @@ sub remove_tag {
   $fn = $id3v2->add_frame($fname, @data);
 
 Add a new frame, identified by the short name $fname. 
-The $data must consist from so much elements, as described
-in the ID3v2.3 standard. If there is need to give an encoding
-parameter and you would like standard ascii encoding, you
-can omit the parameter or set it to 0. Any other encoding
-is not supported yet, and thus ignored. 
+The number of elements of array @data should be as described
+in the ID3v2.3 standard.  (See also L<MP3::Tag::ID3v2-Data>.)
+There are two exceptions: if @data is empty,
+it is filled with necessary number of  C<"">); if one of required elements
+is encoding, it may be omitted (meaning latin1 encoding, or C<0>).
+(Any other encoding is not supported yet, and thus ignored.)
 
 It returns the the short name $fn, which can differ from
 $fname, when there existed already such a frame. If no
 other frame of this kind is allowed, an empty string is
 returned. Otherwise the name of the newly created frame
 is returned (which can have a 01 or 02 or ... appended). 
-
-@data must be undef or the number of elements of @data must 
-be equal to the number of fields of the tag. See also 
-L<MP3::Tag::ID3v2-Data>.
 
 You have to call write_tag() to save the changes to the file.
 
@@ -1039,9 +1038,9 @@ tag, or "Subtitle/Description refinement" (TIT3) frame (unless it is considered
 a part of the title).
 
 If optional arguments ($comment, $short, $language) are present, sets the
-comment frame.  If $language is omited, sets C<XXX> (it should be lowercase
-3-letter abbreviation according to ISO-639-2); if $short is omited, sets
-to C<''>.  If $comment is an empty string, the frame is removed.
+comment frame.  If $language is omited, uses C<XXX> (otherwise it should
+be lowercase 3-letter abbreviation according to ISO-639-2); if $short is
+omited, sets to C<''>.  If $comment is an empty string, the frame is removed.
 
 =cut
 
@@ -1070,7 +1069,7 @@ sub comment {
 =item frame_select($fname, $descrs, $languages [, $newtext])
 
    # Select short-description='', prefere language 'eng', then 'rus', then
-   # first COMM frame, then any COMM frame
+   # the first COMM frame, then any COMM frame
    $val = $id3v2->frame_select('COMM', '', ['eng', 'rus', '#0', '']);
    $new = $id3v2->frame_select('COMM', '', ['eng', 'rus', '#0'],
 			       'Comment with empty "Description" and "eng"');
@@ -1097,12 +1096,12 @@ default to C<''> and C<XXX>).
 
 sub _frame_select {
     # "Quadratic" in number of comment frames and select-short/lang specifiers
-    my ($self, $how, $fname) = (shift, shift, shift);
-    my ($shorts, $languages, $comment) = @_  or return $self->_comment();
+    my ($self, $content, $fname) = (shift, shift, shift);
+    my ($shorts, $languages, $newcontent) = @_;
+#      or ($fname eq 'COMM' and return $self->_comment());	# ???
     $shorts = [$shorts] if defined $shorts and not ref $shorts;
-    $languages = [$languages] if defined $languages and not ref $languages;
     if (defined $languages) {
-	$languages = [$languages] if defined $languages and not ref $languages;
+	$languages = [$languages] unless ref $languages;
 	@$languages = map lc, @$languages;
     }
     my @info = get_frames($self, $fname);
@@ -1115,11 +1114,13 @@ sub _frame_select {
 	    if ($l =~ /^#(\d+)$/) {
 		next if $1 >= @info;
 		push(@by_lang, [$1, $info[$1]]);
+	    } elsif (length $l > 3) {
+		die "Language `$l' should not be more than 3-chars long";
 	    } else {
 		$c = -1;
 		for my $f (@info) {
 		    $c++;
-		    push(@by_lang, [$c, $f])
+		    push(@by_lang, [$c, $f])	# May create duplicates
 			if defined $f and (defined $f->{Language}
 					   and $l eq lc $f->{Language} 
 					   or $l eq '');
@@ -1138,9 +1139,9 @@ sub _frame_select {
 	    if defined $frame and defined $frame->{Description}
 		 and grep $_ eq $frame->{Description}, @$shorts;
     }
-    return scalar @select if $how;
+    return scalar @select unless $content;
     if (@_ < 3) {			# Read-only access
-	return '' unless @select;
+	return unless @select;
 	my $res = $select[0][1]; # Only defined frames here...
 	my $c = keys %$res;
 	$c-- if exists $res->{Description} and defined $shorts;
@@ -1155,7 +1156,7 @@ sub _frame_select {
 	($c, my $frame) = @$f;
 	$self->remove_frame($c ? sprintf '%s%02d', $fname, $c : $fname);
     }
-    return unless defined $comment;
+    return unless defined $newcontent;
     $languages = ['XXX'] unless defined $languages;
     my $format = get_format($fname);
     my $have_lang = grep $_->{name} eq 'Language', @$format;
@@ -1163,12 +1164,12 @@ sub _frame_select {
     $shorts = ['']       unless defined $shorts;
     my $have_descr = grep $_->{name} eq 'Description', @$format;
     $#$shorts = $have_descr - 1;   # Truncate
-    $self->add_frame($fname, @$languages, @$shorts, $comment);
+    $self->add_frame($fname, @$languages, @$shorts, $newcontent);
 }
 
 sub frame_select {
     my $self = shift;
-    $self->_frame_select(0, @_);
+    $self->_frame_select(1, @_);
 }
 
 =item frame_have()
@@ -1179,7 +1180,7 @@ Same as frame_select(), but returns the count of found frames.
 
 sub frame_have {
     my $self = shift;
-    $self->_frame_select(1, @_);
+    $self->_frame_select(0, @_);
 }
 
 =item year( [@new_year] )
@@ -1564,15 +1565,22 @@ sub extract_data {
 			if (exists $rule->{encoded}) {
 			  if ( $encoding > 3 ) {
 			    # decode data
-			    warn "Encoding type '$encoding' not supported yet: found in $rule->{name}\n";
+			    warn "Encoding type '$encoding' not supported: found in $rule->{name}\n";
 			    next;
 			  } elsif ($encoding and not $trustencoding) {
-			    warn "UTF encoding types disabled via MP3TAG_ENCODING=1 to enable): found in $rule->{name}\n";
+			    warn "UTF encoding types disabled via MP3TAG_DECODE_UNICODE): found in $rule->{name}\n";
 			    next;
 			  } elsif ($encoding) {
 			    require Encode;
-			    $found = Encode::decode(($encoding > 2 
+			    if ($decode_utf8) {
+			      $found = Encode::decode(($encoding > 2 
 						 ? 'UTF-8' :'UTF-16'), $found);
+			    } elsif ($encoding < 3) {
+			      # Reencode in UTF-8
+			      $found = Encode::decode(($encoding > 2 
+						 ? 'UTF-8' :'UTF-16'), $found);
+			      $found = Encode::encode('UTF-8', $found);
+			    }
 			  }
 			}
 			
