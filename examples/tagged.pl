@@ -42,7 +42,7 @@ for my $filename (@ARGV) {
   }
   if (exists $mp3->{ID3v2}) {
     $v2++;
-    print " **  found ID3v2 - TAG\n";
+    print " **  found ID3v2 - TAG; size = $mp3->{ID3v2}->{tagsize} (+10);\n";
     my $frames = $mp3->{ID3v2}->get_frame_ids();
     foreach my $frame (keys %$frames) {
        my ($info, $name) = $mp3->{ID3v2}->get_frame($frame);

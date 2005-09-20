@@ -49,10 +49,14 @@ use vars qw/$VERSION %config/;
 	    year_is_timestamp	=> [1],
 	    comment_remove_date	=> [0],
 	    id3v2_frame_empty_ok	=> [0],
+	    id3v2_minpadding	=> [128],
+	    id3v2_sizemult	=> [512],
+	    id3v2_shrink	=> [0],
+	    id3v2_mergepadding  => [0],
 	    parse_minmatch => [0],
 	  );
 
-$VERSION="0.97";
+$VERSION="0.9701";
 
 =pod
 
@@ -567,6 +571,25 @@ Current default: FALSE.
 When setting the individual id3v2 frames via ParseData, do not
 remove the frames set to an empty string.  Default 0 (empty means 'remove').
 
+=item id3v2_minpadding
+
+Minimal padding to reserve after ID3v2 tag when writing (default 128),
+
+=item id3v2_sizemult
+
+Additionally to C<id3v2_minpadding>, insert padding to make file size multiple
+of this when writing ID3v2 tag (default 512),  Should be power of 2.
+
+=item id3v2_shrink
+
+If TRUE, when writing ID3v2 tag, shrink the file if needed (default FALSE).
+
+=item id3v2_mergepadding
+
+If TRUE, when writing ID3v2 tag, consider the 0-bytes following the
+ID3v2 header as writable space for the tag (default FALSE).
+
+
 =item  translate_*
 
 A subroutine used to munch a field C<*> (out of C<title track artist album comment year genre>)
@@ -609,6 +632,8 @@ sub config {
 		   parse_join parse_filename_ignore_case
 		   parse_filename_merge_dots year_is_timestamp
 		   comment_remove_date extension id3v2_missing_fatal
+		   id3v2_frame_empty_ok id3v2_minpadding id3v2_sizemult
+		   id3v2_shrink id3v2_mergepadding
 		   parse_minmatch);
     my @tr = map "translate_$_", qw( title track artist album comment year genre );
     $conf_rex = '^(' . join('|', @known, @tr) . ')$' unless $conf_rex;

@@ -64,7 +64,7 @@ ok($v2 && $v2->write_tag,"Writing ID3v2");
 
 $mp3=$v1=$v2=undef;			# Close the file...
 
-ok(((stat("test2.mp3"))[7] % 4096) == 0," ID3v2 rounding size");
+ok(((stat("test2.mp3"))[7] % 512) == 0," ID3v2 rounding size");
 
 $mp3 = MP3::Tag->new("test2.mp3");
 $mp3->get_tags;

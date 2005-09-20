@@ -12,7 +12,7 @@ use File::Basename;
 
 use vars qw /%format %long_names %res_inp @supported_majors %v2names_to_v3 $VERSION @ISA/;
 
-$VERSION="0.97";
+$VERSION="0.9701";
 @ISA = 'MP3::Tag::__hasparent';
 
 my $trustencoding = $ENV{MP3TAG_DECODE_UNICODE};
@@ -557,9 +557,13 @@ in the file is smaller than the built ID3v2 tag, the necessary
 is able to accomodate the build tag (and the C<tagsize> field of
 $id3v2 is updated correspondingly); in any case the header length of
 $tag2 is set to reflect the space in the beginning of the audio file.
-Keep in mind that the actual length of the string $tag2 is not
-modified, so if it is smaller than the reserved place in the file, one
-needs to add some 0 padding at the end.
+
+Unless $update_file has C<'padding'> as a substring, the actual length of
+the string $tag2 is not modified, so if it is smaller than the reserved
+space in the file, one needs to add some 0 padding at the end.  Note that
+if the size of reserved space can shrink (as with C<id3v2_shrink> configuration
+option), then without this option it would be hard to calculate necessary
+padding by hand.
 
 =item write_tag()
 
@@ -615,40 +619,53 @@ sub as_bin ($;$$) {
     $flags = chr(128) if $tag_data =~ s/\xFF(?=[\x00\xE0-\xFF])/\xFF\x00/g; # sync
     $tag_data .= "\0"		# Terminated by 0xFF?
 	if length $tag_data and chr(0xFF) eq substr $tag_data, -1, 1;
-    my $taglen = length $tag_data;
+    my $n_tsize = length $tag_data;
 
     my $header = 'ID3' . chr(3) . chr(0);
 
     if ($update_file) {
-	if ($self->{tagsize} < $taglen) {
-	    # if creating new tag / increasing size add at least 2k padding
-	    # add additional bytes to make new filesize multiple of 4k
+	my $o_tsize = $self->{padding_size} + $self->{tagsize};
+	my $add_padding = 0;
+	if ( $o_tsize < $n_tsize
+	     or ($self->get_config('id3v2_shrink'))->[0] ) {
+	    # if creating new tag / increasing size add at least 128b padding
+	    # add additional bytes to make new filesize multiple of 512b
 	    my $mp3obj = $self->{mp3};
 	    my $filesize = (stat($mp3obj->{filename}))[7];
-	    my $newsize = ($filesize + $taglen - $self->{tagsize} + 0x800);
-	    $newsize = (($newsize + 0xFFF) & ~0xFFF);
-	    my $padding = $newsize - $taglen - ($filesize - $self->{tagsize});
-	    my @insert = [0, $self->{tagsize}+10, ($taglen += $padding) + 10];
-	    return undef unless insert_space($self, \@insert) == 0;
-	    $self->{tagsize} = $taglen;
-	}			# Else keep tagsize
+	    my $extra = ($self->get_config('id3v2_minpadding'))->[0];
+	    my $n_filesize = ($filesize + $n_tsize - $o_tsize + $extra);
+	    my $round = ($self->get_config('id3v2_sizemult'))->[0];
+	    $n_filesize = (($n_filesize + $round - 1) & ~($round - 1));
+	    my $n_padding = $n_filesize - $filesize - ($n_tsize - $o_tsize);
+	    $n_tsize += $n_padding;
+	    if ($o_tsize != $n_tsize) {
+	      my @insert = [0, $o_tsize+10, $n_tsize + 10];
+	      return undef unless insert_space($self, \@insert) == 0;
+	    } else {	# Slot is not filled by 0; fill it manually
+	      $add_padding = $n_padding - $self->{padding_size};
+	    }
+	    $self->{tagsize} = $n_tsize;
+	} else {	# Include current "padding" into n_tsize
+	    $add_padding = $self->{tagsize} - $n_tsize;
+	    $n_tsize = $self->{tagsize} = $o_tsize;
+        }
+	$add_padding = 0 if $add_padding < 0;
+	$tag_data .= "\0" x $add_padding if $update_file =~ /padding/;
     }
 
     #convert size to header format specific size
-    my $size = unpack('B32', pack ('N', $taglen));
+    my $size = unpack('B32', pack ('N', $n_tsize));
     substr ($size, -$_, 0) = '0' for (qw/28 21 14 7/);
     $size= pack('B32', substr ($size, -32));
+    
     return "$header$flags$size$tag_data";
 }
 
 sub write_tag {
     my ($self,$ignore_error) = @_;
-    my $osize = $self->{tagsize};
-    my $tag = $self->as_bin($ignore_error, 'update_file');
+    my $tag = $self->as_bin($ignore_error, 'update_file, with_padding');
     return 0 unless defined $tag;
 
-    my $padtail = $osize - length $tag;
-    $padtail = 0 if $padtail < 0;
 
     # actually write the tag
     my $mp3obj = $self->{mp3};
@@ -660,7 +677,7 @@ sub write_tag {
     }
     $mp3obj->seek(0,0);
     $mp3obj->write($tag);
-    $mp3obj->write(chr(0) x $padtail) if $padtail;
+    $mp3obj->close;
     return 1;
 }
 
@@ -1406,7 +1423,7 @@ sub new {
     $self->{version}= "$self->{major}.$self->{revision}";
 
     if ($self->read_header($header)) {
-	if (defined $create && $create) {
+	if ($create) {
 	    $self->{tag_data} = '';
 	    $self->{data_size} = 0;
 	} else {
@@ -1434,6 +1451,14 @@ sub new {
 		    $self->{frame_start} += 10; # footers size is 10 bytes
 		    warn "ID3v".$self->{version}." footer isn't supported. Ignoring it\n";
 	    }
+	    if (($mp3obj->get_config('id3v2_mergepadding'))->[0]) {
+		my $d;
+		while ($mp3obj->read(\$d, 1024)) {
+		  my ($z) = ($d =~ /^(\0*)/);
+		  $self->{padding_size} += length $z;
+		  last unless length($z) == length($d);
+		}
+	    }
 	}
 	$mp3obj->close;
 	return $self;
@@ -1443,6 +1468,7 @@ sub new {
 	    $self->{tag_data}='';
 	    $self->{tagsize} = -10;
 	    $self->{data_size} = 0;
+	    $self->{padding_size} = 0;
 	    return $self;
 	}
     }
@@ -1509,6 +1535,7 @@ sub read_header {
 		$self->{major}=$major;
 		$self->{revision}=$revision;
 		$self->{tagsize} = $size;
+		$self->{padding_size} = 0;	# Fake so far
 		$self->{flags} = $flags;
 		return 1;
 	}

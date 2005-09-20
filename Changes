@@ -1,3 +1,20 @@
+Release Name: 0.9701
+=======================
+
+-P option of mp3info2 would ignore trailing empty parse patterns
+  (not very restrictive, since to succeed, pattern should have a set-field,
+  or match-exactly field; workaround: append @={U0}, and do not set U0).
+
+When updating ID3v2 tag without growing the file, the tag length would
+not include padding; thus the following update would not use the padding ==>
+tag size leak.
+
+New configuration options: id3v2_minpadding, id3v2_sizemult, id3v2_shrink,
+id3v2_mergepadding (the first two have new defaults: 128 and 512; was 2K and
+4K).
+
+Close file for write of ID3v2 tag as early as possible.
+
 Release Name: 0.97
 =======================
 
