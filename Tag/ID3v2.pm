@@ -1610,11 +1610,11 @@ sub extract_data {
 			    }
 			  }
 			}
-			
+
 			$found = toNumber($found) if ( $rule->{isnum} );
 
 			$found = $rule->{func}->($found) if (exists $rule->{func});
-			
+
 			unless (exists $rule->{data} || !defined $found) {
 				$found =~ s/[\x00]+$//;   # some progs pad text fields with \x00
 				$found =~ s![\x00]! / !g; # some progs use \x00 inside a text string to seperate text strings

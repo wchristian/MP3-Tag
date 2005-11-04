@@ -3,24 +3,6 @@
 use strict;
 use Getopt::Std 'getopts';
 
-my $wav_header_wav = <<EOH;
-  a4	# header: 'RIFF'
-  V	# size: Size of what follows
-  a4	# type: 'WAVE'
-
-  a4	# type1: 'fmt ' subchunk
-  V	# size1: Size of the rest of subchunk
-  v	# format: 1 for pcm, 0x55 for mp3
-  v	# channels: 2 stereo 1 mono
-  V	# frequency
-  V	# bytes_per_sec
-  v	# bytes_per_sample
-  v	# bits_per_sample_channel
-
-  a4	# type2: 'data' subchunk
-  V	# sizedata: Size of the rest of subchunk
-EOH
-
 # The "size*" fields may be followed by a byte to get to an even alignment;
 # it is not included into size! (Not applicable to these formats)
 my $wav_header = <<EOH;			# Used for MP3???
@@ -121,6 +103,10 @@ EOD
   $vals{prefix} = $prefix;
   return \%vals;
 }
+
+# Typical usage:
+# a) rename all .mp3 to .wav: pfind . "s/\.mp3$/.wav/i"
+# b) run: eat_wav_mp3_header.pl -FdI -R .
 
 getopts('FGRdsI', \%opt); # Force, Glob, recurse, delete, silent, ID3v2-header-OK
 if ($opt{G}) {

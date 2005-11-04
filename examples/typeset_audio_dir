@@ -11,9 +11,9 @@ my %opt = (2 => '%a', n => 1, a => 2, t => 1);
 # use duration, year, whole dates, replace @ by %, basename of output files,
 # ignore 'author' on level > this in directory tree
 # use 'album' for titles with depth above this...
-getopts('2:1:TyY@B:a:t:', \%opt);
+getopts('2:1:TyYn@B:a:t:', \%opt);
 if ($opt{'@'}) {
-  $opt{$_} =~ s/\%/\@/ for keys %opt;
+  $opt{$_} =~ s/\@/\%/g for keys %opt;
 }
 my $out_envelop_cdcover = \*STDOUT;
 my $out_envelop_text;
@@ -63,7 +63,7 @@ sub preprocess_and_sort_with_aligned_numbers {
   for my $f (@_) {
     if ($f eq '.content_comment' or $f eq '.top_heading') {
       my $ff = "$File::Find::dir/$f";
-      next unless -f $ff;
+      next unless -f $ff;	# ignore non-files
       local $/;
       local *F;
       open F, "< $ff" or die "open `$ff' failed: $!";
@@ -73,11 +73,9 @@ sub preprocess_and_sort_with_aligned_numbers {
       if ($f eq '.top_heading') {
 	my $lev = 0;
 	if (not length $c) {
-	  # Use dirname
-	  $c = $File::Find::dir;
-	  $c =~ s,.*/,,;
+	  $lev = -1;
 	} elsif ($c =~ /^-?\d+$/) {
-	  $lev = $c;
+	  $lev = $c - 1;
 	  $c = '';
 	}
 	$level[-1] = $lev;
@@ -94,13 +92,19 @@ sub preprocess_and_sort_with_aligned_numbers {
 }
 
 sub unwind_dir {
+  $print_dir = 1 if $level[-1] == 0; # Need to print again
   pop @comments;
   pop @performers;
   pop @level;
 }
 
 sub to_TeX ($) {
+  # Assume high-bit characters are letters
   (my $in = shift) =~ s/([&_\$#%])/\\$1/g;
+  $in =~ s/(\b|(?<=\.\.\.)|(?<=[\x80-\xFF]))`\B|`$/'/g;
+  $in =~ s/\B'(\b|(?=[\x80-\xFF]))|^'/`/g;
+  $in =~ s/(\b|(?<=\.\.\.)|(?<=[\x80-\xFF]))"\B|"$/''/g;
+  $in =~ s/\B"(\b|(?=[\x80-\xFF]))|^"/``/g;
   $in =~ s/\.{3}/\\dots{}/g;
   $in =~ s/\bDvorák\b/Dvo\\v rák/g;
   $in;
@@ -139,7 +143,7 @@ sub print_this_mp3 ($) {
   $previous->{len} += $new->{len} if not $changed and $new->{len};
   return unless $changed;
 
-  # Once per directory given as argument to the script
+  # Once per toplevel directory
   if (defined $print_dir and cmp_u $new->{top}, $previous->{top}) {
     $new->{print_top} = $new->{top};
     undef $print_dir;
@@ -156,9 +160,9 @@ sub print_this_mp3 ($) {
   return unless %$this;
 
   # Once per directory given as argument to the script
-  if ($this->{print_top}) {
+  if (defined $this->{print_top}) {
     print "\n\\preDir ";
-    print to_TeX $this->{top};
+    print to_TeX $this->{print_top};
     print "\\postDir\n";
   }
   if ($this->{print_author}) {
@@ -178,6 +182,11 @@ sub print_this_mp3 ($) {
   $year = "\\preyear $year\\postyear" if length $year;
 
   print "\\pretitle ";
+  if ($this->{track}) {		# Do not typeset 0 or empty
+    print "\\pretrack ";
+    print to_TeX $this->{track};
+    print "\\posttrack ";
+  }
   print to_TeX $this->{title};
   print "$comment$year\\posttitle\n";
 }
@@ -194,6 +203,7 @@ sub print_mp3 {
   $this->{top} = $opt{1} ? $tag->interpolate($opt{1}) : $performers[-1];
   $this->{author} = $tag->interpolate($opt{2});	# default '%a'
   $this->{title} = $tag->interpolate(@parts <= $opt{t} ? '%t' : '%l');
+  $this->{track} = $tag->track if $opt{n} and @parts <= $opt{t};
   $this->{len} = $tag->interpolate('%S') if $opt{T};
   my $l_part = $opt{a};
   $l_part = $#parts if $l_part >= $#parts;
@@ -229,6 +239,7 @@ my $common1 = <<'EOP';
 \def\posttitle{\par\egroup}
 \def\precomment{ \bgroup\it}
 \def\postcomment{\egroup}
+\def\pretrack#1\posttrack{#1.~}
 %\def\preyear{ \hfil\hbox{}\hskip0pt\hbox{}\nobreak\hskip0pt plus 1fill\nobreak[}
 %%\def\preyear{\unskip\nobreak\hfil\penalty50\hskip0.75em\hbox{}\nobreak\hfill[}
 %\def\postyear{]}
@@ -328,9 +339,13 @@ print $out_envelop_text <<'EOP' if defined $out_envelop_text;
 
 \begin{document}
 
-\def\SETDIR#1{\bgroup\centering\bf\normalsize#1\par\egroup}
+% These hardcoded 3pt, 4pt values are very questionable...
+\def\SETDIR#1{\bgroup\centering\bf\normalsize#1\par\egroup
+	      \vskip 3pt\hrule\vskip -3pt\vbox to 0pt{}\relax}
 \let\PREDIR\relax
-\def\preDir#1\postDir{\PREDIR\relax\def\PREDIR{\end{multicols}}%
+
+\def\preDir#1\postDir{\PREDIR\relax\def\PREDIR{\end{multicols}%
+					       \hrule\vskip 4pt\relax}%
 		      \begin{multicols}{\COLUMNS}[\SETDIR{#1}]\relax}
 \columnsep 9pt
 \columnseprule.4pt
@@ -391,3 +406,172 @@ for (@ARGV) {
   print_this_mp3({});	# Flush the postponed data
   chdir $d or die;
 }
+
+=head1 NAME
+
+typeset_audio_dir - produce B<TeX> listing of directories with audio files.
+
+=head1 SYNOPSIS
+
+  # E.g.: current directory contains 1 subdirectory-per-performer.
+  # Inside each directory the structure is
+  #   Composer/single*.mp3              (output <title> field)
+  # and
+  #   Composer/MultiPart/part*.mp3      (output <album> field)
+  # Emit year and duration info
+  typeset_audio_dir -y -T -B Quartets *
+
+  # Likewise, but this directory structure is w.r.t. current directory;
+  # Do not emit year and duration
+  typeset_audio_dir .
+  typeset_audio_dir
+
+  # Use artist as toplevel heading, album as the 2nd level; use track numbers;
+  # name is based on title for any depth in directory hierarchy;
+  # likewise for generation of 2nd level heading.
+  typeset_audio_dir -@ -1 "@a" -2 "@l" -t 1000 -a 1000 -ynT -B All .
+
+=head1 DESCRIPTION
+
+Scans directory (or directories), using L<MP3::Tag> to obtain
+information about audio files (currently only MP3s).  Produces (one or
+more) B<TeX> files with the listing.
+
+The intent is to support many different layouts of directories with
+audio files with as little tinkering with command-line options as
+possible; thus C<type_audio_dir> tries to do as much as possible by
+guestimates.  Similtaneously, one should be able to tune the script to
+handle the layout they have.
+
+The script emits headers for several levels of "grouping".  The
+"toplevel" group header is emited once for every "toplevel" directory
+(with audio files), further headers are emited based on changes in
+descriptors of the audio files during scan.
+
+=head1 OPTIONS
+
+=over
+
+=item B<-B>
+
+gives basename of the output file.  Without this option the script
+will output to STDOUT.  With this option, script separates the layout
+from content, and produces 3 B<TeX> files:
+
+  basename_text.tex
+  basename_cdcover.tex
+  basename_list.tex
+
+The last file contains the information about audio files encountered.
+
+The first two files are supposed to be human-editable; they will not
+be overwritten by a following rerun with the same basename given to
+the script.  By editing these files, one can choose between several
+encodings, multicolumn output, font size, interline spacing, margins,
+page size etc.
+
+=item B<-y>
+
+Emit year (or date) information if present.  Very long date
+descriptors (e.g., when multiple ranges of dates are present) are
+compressed as much as possible.
+
+=item B<-Y>
+
+Emit the whole date information if present.
+
+=item B<-T>
+
+Emit duration information.
+
+=item B<-n>
+
+Emit track number.
+
+=item B<-1>
+
+Toplevel header format; is interpolate()d by L<MP3::Tag> based on
+the content of the first audio file encountered during scan of this
+toplevel directory.  The default is based on the name of the directory
+(with some translation: underscore is converted to space).
+
+=item B<-2>
+
+Second-level heading format; is interpolate()d by L<MP3::Tag>.
+Calculated based on the content of each audio file.  The heading is
+emited when the interpolated value changes (subject to option L<B<-a>>).
+
+Empty string disables generation.
+
+=item B<-a>
+
+Ignore changes to the second-level heading for directories deeper than
+this inside top-level directory.  Defaults to 2.  For example, in
+
+  Performer/Composer/Collection/part1.mp3
+  Performer/Composer/Collection/part2.mp3
+  Performer/Composer/single1.mp3
+  Performer/Composer/single2.mp3
+
+if the toplevel directory is F<Performer>, then changes of the
+second-level header in F<single*.mp3> would create a new second-level
+heading.  However, similar changes in F<part*.mp3> will not create a
+new heading.
+
+B<NOTE:> maybe this default if 2 is not very intuitive.  It is
+recommended to explicitely set this option to the value you feel
+appropriate (C<1e100> would play role of infinity).
+
+=item B<-t>
+
+The title-cutoff depth (w.r.t. toplevel directory).  Defaults to 2.
+In audio files deeper than this the album C<%l> is used as the name;
+otherwise the title C<%t> of the audio file is used.
+
+Set to C<-1e100> to always use C<%l>, and to C<1e100> to always use C<%a>.
+
+=item B<-@>
+
+Replace all C<@> by C<%> in options.  Very useful with DOSISH shells
+to include C<%>-escapes necessary for L<MP3::Tag>'s interpolate().
+
+=back
+
+=head1 Info read from file system
+
+The following files are used to give hints to C<type>
+
+=over
+
+=item F<.content_comment>
+
+Content of this file is used as a comment field in the output for all
+files in this directory.
+
+=item F<.top_heading>
+
+If empty, indicates that when the depth of files modifies the output,
+it is calculated w.r.t. the subdirectories of the directory of this
+file (ouph!).  If contains a number, it is added to this depth.
+
+Otherwise the content of this file is used as a toplevel heading for
+this directory.
+
+=back
+
+=head1 HINTS
+
+Do not forget that if you can't describe a complicated layout by
+command-line options, you still have a possibility to run this script
+many times (once per directory with "handable layout", using B<-B> and
+other options suitable for this subdirectory).  Then you can use
+B<LaTeX> C<\input> directives to include the generated files into the
+toplevel C<LaTeX> file.
+
+You can also redefine C<\preDir * \posDir> to do nothing, and put the
+necessary code to generate the headers into the top-level file.
+
+Modify the formatting macros to suit your needs.
+
+=cut
+

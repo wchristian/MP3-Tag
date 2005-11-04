@@ -117,7 +117,7 @@ C<year> can be used to access the results of the parse.
 
 It is possible to set individual id3v2 frames; use %{TIT1} or
 some such.  Setting to an empty string deletes the frame if config
-parameter C<id3v2_frame_empty_ok> is false.
+parameter C<id3v2_frame_empty_ok> is false (the default value).
 
 =cut
 

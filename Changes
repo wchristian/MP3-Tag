@@ -1,3 +1,30 @@
+Release Name: 0.9702
+=======================
+examples/type_mp3_dir.pl:
+	new name typeset_audio_dir.pl;
+	Fully document;
+	Change the semantic of numbers in .top_heading files by 1;
+	New option -n;
+	Generate 1st level header for all "toplevel" dirs;
+	TeXify ", ` and ';
+	Add \hrule's for default toplevel headings.
+	-@ was not working;
+Correct rounding of total_secs_int().
+Truncated version in total_secs_int_trunc().
+Rename total_millisecs_int() to total_millisecs_int_fetch(),
+	likewise for total_secs_fetch().
+New method total_millisecs_int() (with caching).
+Cache duration in ms.
+New escape: %M (total millisecs, integer).
+New confiration variable: update_length.
+Will update TLEN field if needed (governed by `update_length').
+Alternation inside escapes implemented.
+New file README.shrink with recommendations on how to fix results of
+the bug with extra unmarked 0-padding.
+Remove trailing .pl from names of typeset_audio_dir, mp3info2.
+Install typeset_audio_dir, mp3info2 unless one of options -n or LIB=
+is given to Makefile.PL.
+
 Release Name: 0.9701
 =======================
 

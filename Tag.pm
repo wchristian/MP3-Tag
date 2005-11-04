@@ -54,9 +54,10 @@ use vars qw/$VERSION %config/;
 	    id3v2_shrink	=> [0],
 	    id3v2_mergepadding  => [0],
 	    parse_minmatch => [0],
+	    update_length => [1],
 	  );
 
-$VERSION="0.9701";
+$VERSION="0.9702";
 
 =pod
 
@@ -589,6 +590,12 @@ If TRUE, when writing ID3v2 tag, shrink the file if needed (default FALSE).
 If TRUE, when writing ID3v2 tag, consider the 0-bytes following the
 ID3v2 header as writable space for the tag (default FALSE).
 
+=item update_length
+
+If TRUE, when writing ID3v2 tag, create a C<TLEN> tag if the duration
+is known (as it is after calling methods like C<total_secs>, or
+interpolation the duration value).  If this field is 2 or more, force
+creation of ID3v2 tag by C<update_tags> if the duration is known.
 
 =item  translate_*
 
@@ -863,6 +870,7 @@ The one-letter ESCAPEs are replaced by
 		q	frequency_kHz
 		Q	frequency_Hz
 		S	total_secs_int
+		M	total_millisecs_int
 		m	total_mins
 		s	leftover_secs
 		C	is_copyrighted_YN
@@ -907,9 +915,26 @@ String starting with C<!FNAME:> are treated similarly with inverted test.
 
 =item *
 
+If string starts with C<FNAME||>: if frame FNAME exists, the part
+after C<||> is ignored; otherwise the part before C<||> is ignored,
+and the rest is reinterpreted (after stripping backslashes from
+backslashes and curlies).
+
+=item *
+
+If string starts with C<FNAME|>: if frame FNAME exists, the part
+after C<|> is ignored; otherwise the part before C<|> is ignored,
+and the rest is reinterpreted as if it started with C<%{>.
+
+=item *
+
 String starting with I<LETTER>C<:> or C<!>I<LETTER>C<:> are treated similarly
 to ID3v2 conditionals, but the condition is that the corresponding escape
 expands to non-empty string.
+
+=item *
+
+Likewise for string starting with I<LETTER>C<|> or I<LETTER>C<||>.
 
 =item *
 
@@ -963,6 +988,10 @@ other language (in this order).  (I do not know which one of
 terminology/bibliography codes for Frech is used, so for safety
 include both.)
 
+  Composer: %{TCOM|a}
+
+will use the ID3v2 field C<TCOM> if present, otherwise uses C<%a>.
+
 =cut
 
 my %trans = qw(	t	title
@@ -994,6 +1023,7 @@ my %trans = qw(	t	title
 		Q	frequency_Hz
 		?	size_bytes
 		S	total_secs_int
+		M	total_millisecs_int
 		m	total_mins
 		s	leftover_secs
 		?	leftover_msec
@@ -1037,12 +1067,22 @@ sub interpolate {
 	} elsif ($what eq '{' and $pattern =~ s/^(aC|tT|c[TC])}//) {
 	    my $meth = $trans{$1};
 	    $str = $self->$meth();
-	} elsif ($what eq '{' and $pattern =~ s/^(!)?([talygcnfFeEABD]):((?:[^\\{}]|\\[\\{}])*)}//) {
-	    my $neg = $1;
-	    my $have = length($self->interpolate("%$2"));
-	    next unless $1 ? !$have : $have;
-	    ($str = $3) =~ s/\\([\\{}])/$1/g;
-	    $str = $self->interpolate($str);
+	} elsif ($what eq '{' and $pattern =~ s/^(!)?([talygcnfFeEABD])(:|\|\|?)((?:[^\\{}]|\\[\\{}])*)}//) {
+	    my ($neg, $alt) = ($1, ($3 ne ':') && $3);
+	    die "Negation and alternation incompatible in interpolation"
+	      if $alt and $neg;
+	    $str = $self->interpolate("%$2");
+	    my $have = length($str);
+	    next if not $alt and $1 ? $have : !$have;
+	    unless ($have and $alt) {
+	      $str = $4;
+	      if ($alt and $alt ne '||') {
+		$str = $self->interpolate(length $str > 1 ? "%{$str}" : "%$str")
+	      } else {
+		$str =~ s/\\([\\{}])/$1/g;
+		$str = $self->interpolate($str);
+	      }
+	    }
 	} elsif ($what eq '{' and $pattern =~ s/^ID3v1}//) {
 	    return '' unless $self->{ID3v1};
 	    $str = $self->{ID3v1}->as_bin;
@@ -1063,20 +1103,41 @@ sub interpolate {
 		my $langs = defined $2 ? [split /,/, $2, -1] : '';
 		my ($fname, $shorts) = ($1, $3);
 		$str = $self->select_id3v2_frame($fname, $shorts, $langs);
-	    } elsif ($what =~ /^(!)?(\w{4}(?:\d{2,})?):(.*)/s) {
+	    } elsif ($what =~ /^(!)?(\w{4}(?:\d{2,})?)(:|\|\|?)(.*)/s) {
+	        my ($neg, $alt) = ($1, ($3 ne ':') && $3);
+		die "Negation and alternation incompatible in interpolation"
+		    if $alt and $neg;
 		$ids = $self->get_id3v2_frame_ids || ''
 		    unless defined $ids; # Cache the value
 		my $have = $ids && exists $ids->{$2};
-		next unless $1 ? !$have : $have;
-		($str = $3) =~ s/\\([\\{}])/$1/g;
-		$str = $self->interpolate($str);
-	    } elsif ($what =~ /^(!)?(\w{4})(?:\(([^)]*)\))?(?:\[([^]]*)\])?:(.*)$/s) {
+		next if not $alt and $neg ? $have : !$have;
+		$str = $4;
+		if ($alt and $have) {
+		  (undef, $str) = $self->get_id3v2_frames("$2");
+		  $str = $str->{_Data} if $str and ref $str and exists $str->{_Data};
+		} elsif ($alt and $alt ne '||') {
+		  $str = $self->interpolate(length $str > 1 ? "%{$str}" : "%$str")
+		} else {
+		  $str =~ s/\\([\\{}])/$1/g;
+		  $str = $self->interpolate($str);
+		}
+	    } elsif ($what =~ /^(!)?(\w{4})(?:\(([^)]*)\))?(?:\[([^]]*)\])?(:|\|\|?)(.*)$/s) {
+	        my ($neg, $alt) = ($1, ($5 ne ':') && $5);
+		die "Negation and alternation incompatible in interpolation"
+		    if $alt and $neg;
 		my $langs = defined $3 ? [split /,/, $3, -1] : undef;
 		my ($fname, $shorts) = ($2, $4);
 		my $have = $self->have_id3v2_frame($fname, $shorts, $langs);
-		next unless $1 ? !$have : $have;
-		($str = $5) =~ s/\\([\\{}])/$1/g;
-		$str = $self->interpolate($str);
+		next if not $alt and $1 ? $have : !$have;
+		$str = $6;
+		if ($alt and $have) {
+		  $str = $self->select_id3v2_frame($fname, $shorts, $langs);
+		} elsif ($alt and $alt ne '||') {
+		  $str = $self->interpolate(length $str > 1 ? "%{$str}" : "%$str")
+		} else {
+		  $str =~ s/\\([\\{}])/$1/g;
+		  $str = $self->interpolate($str);
+		}
 	    } else {
 		die "unknown escape `$what'";
 	    }
@@ -1419,6 +1480,8 @@ sub filename_extension_nodot {
 
 =item total_secs_int()
 
+=item total_millisecs_int()
+
 =item total_mins()
 
 =item leftover_secs()
@@ -1443,12 +1506,14 @@ sub filename_extension_nodot {
 
 =item vbr_scale()
 
-These methods return the information about the contents of the MP3 file.
-Useing these methods requires that the module L<MP3::Info|MP3::Info>
-is installed.  Since these calls are redirectoed to the module
-L<MP3::Info|MP3::Info>, the returned info is subject to the same restrictions
-as the method get_mp3info() of this module; in particular, the information
-about the frame number and frame length is only approximate
+These methods return the information about the contents of the MP3
+file.  If this information is not cached in ID3v2 tags (not
+implemented yet), using these methods requires that the module
+L<MP3::Info|MP3::Info> is installed.  Since these calls are
+redirectoed to the module L<MP3::Info|MP3::Info>, the returned info is
+subject to the same restrictions as the method get_mp3info() of this
+module; in particular, the information about the frame number and
+frame length is only approximate
 
 vbr_scale() is from the VBR header; total_secs() is not necessarily an integer,
 but total_secs_int() is;
@@ -1466,18 +1531,20 @@ my %mp3info = qw(
   bitrate_kbps		BITRATE
   frequency_kHz		FREQUENCY
   size_bytes		SIZE
-  total_secs		SECS
-  total_mins		MM
-  leftover_secs		SS
-  leftover_msec		MS
-  time_mm_ss		TIME
   is_copyrighted	COPYRIGHT
   frames_padded		PADDING
   channel_mode_int	MODE
   frames		FRAMES
   frame_len		FRAME_LENGTH
   vbr_scale		VBR_SCALE
+  total_secs_fetch	SECS
 );
+
+# Obsoleted:
+#  total_mins		MM
+#  time_mm_ss		TIME
+#  leftover_secs		SS
+#  leftover_msec		MS
 
 for my $elt (keys %mp3info) {
   no strict 'refs';
@@ -1498,9 +1565,29 @@ sub frequency_Hz ($) {
 }
 
 sub mpeg_layer_roman	{ 'I' x (shift->mpeg_layer) }
-sub total_secs_int	{ int (shift->total_secs) }
+sub total_millisecs_int_fetch	{ int (0.5 + 1000 * shift->total_secs_fetch) }
 sub frames_padded_YN	{ shift->frames_padded() ? 'Yes' : 'No' }
 sub is_copyrighted_YN	{ shift->is_copyrighted() ? 'Yes' : 'No' }
+
+sub total_millisecs_int {
+  my $self = shift;
+  my $ms = $self->{ms};
+  return $ms if defined $ms;
+  (undef, $ms) = $self->get_id3v2_frames('TLEN');
+  $ms = $self->total_millisecs_int_fetch() unless defined $ms;
+  $self->{ms} = $ms;
+  return $ms;
+}
+sub total_secs_int	{ int (0.5 + 0.001 * shift->total_millisecs_int) }
+sub total_secs		{ 0.001 * shift->total_millisecs_int }
+sub total_secs_trunc	{ int (0.001 * shift->total_millisecs_int) }
+sub total_mins		{ int (0.001/60 * shift->total_millisecs_int) }
+sub leftover_secs	{ shift->total_secs_int() % 60 }
+sub leftover_msec	{ shift->total_millisecs_int % 1000 }
+sub time_mm_ss {		# Borrowed from MP3::Info
+  my $self = shift;
+  sprintf "%.2d:%.2d", $self->total_mins, $self->leftover_secs;
+}
 
 my @channel_modes = ('stereo', 'joint stereo', 'dual channel', 'mono');
 sub channel_mode	{ $channel_modes[shift->channel_mode_int] }
@@ -1521,6 +1608,10 @@ If $data is not defined or missing, C<autoinfo('from')> is called to obtain
 the data.  Returns the object reference itself to simplify chaining of method
 calls.
 
+This is probably the simplest way to set data in the tags: populate
+$data and call this method - no further tinkering with subtags is
+needed.
+
 =cut
 
 sub update_tags {
@@ -1539,7 +1630,12 @@ sub update_tags {
     }				# Skip what is already there...
     $mp3->{ID3v1}->write_tag;
 
-    return $mp3 if $mp3->{ID3v1}->fits_tag($data) and not exists $mp3->{ID3v2};
+    my $do_length
+      = (defined $mp3->{ms}) ? ($mp3->get_config('update_length'))->[0] : 0;
+
+    return $mp3 
+      if $mp3->{ID3v1}->fits_tag($data)
+	and not exists $mp3->{ID3v2} and $do_length < 2;
 
     $mp3->new_tag("ID3v2") unless exists $mp3->{ID3v2};
     for $elt (qw/title artist album year comment track genre/) {
@@ -1549,6 +1645,9 @@ sub update_tags {
         $mp3->{ID3v2}->$elt( $d->[0] ) if $d->[1] ne 'ID3v2';
     }				# Skip what is already there...
     # $mp3->{ID3v2}->comment($data->{comment}->[0]);
+
+    $mp3->set_id3v2_frame('TLEN', $mp3->{ms})
+      if $do_length and not $mp3->have_id3v2_frame('TLEN');
     $mp3->{ID3v2}->write_tag;
     return $mp3;
 }

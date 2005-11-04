@@ -59,7 +59,7 @@ if (defined $opt{P}) {
   my ($c) = ($opt{P} =~ /^\w*(\W)/s);
   $c = quotemeta $c if defined $c;
   $c = '(?!)' unless defined $c;		# Never match
-  @parse_data = map [split /$c/], split /$c$c$c/, $opt{P};
+  @parse_data = map [split /$c/, $_, -1], split /$c$c$c/, $opt{P};
   for $c (@parse_data) {
     die "Two few parts in parse directive `@$c'.\n" if @$c < 3;
   }

@@ -20,10 +20,10 @@ examples/mod/Music_Translate_Fields.pm
 examples/mod/transliterate_win1251.pm
 examples/extractID3v2.pl
 examples/mp3info.pl
-examples/mp3info2.pl
+examples/mp3info2
 examples/tagged.pl
 examples/tagit.pl
-examples/type_mp3_dir.pl
+examples/typeset_audio_dir
 examples/mp3_total_time.pl
 examples/eat_wav_mp3_header.pl 
 test.mp3
@@ -36,3 +36,4 @@ tk-tag/README
 tk-tag/tk-tag.pl
 ID3v2-Data.pod
 META.yml                                 Module meta-data (added by MakeMaker)
+README.shrink
