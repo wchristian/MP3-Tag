@@ -9,8 +9,8 @@ use strict;
 
 BEGIN { eval 'require Music_Translate_Fields' }
 
-my %opt;
-getopts('c:a:t:l:n:g:y:uDp:C:P:E:G@R', \%opt);
+my %opt = (r => '(?i:\.mp3$)');
+getopts('c:a:t:l:n:g:y:uDp:C:P:E:G@Rr:I', \%opt);
 exec 'perldoc', '-F', $0 unless @ARGV;
 
 # keys of %opt to the MP3::Tag keywords:
@@ -113,9 +113,22 @@ EOC
 	    $data = $mp3->autoinfo('from');
 	}
 
+	my $performer = 'Artist: %a';
+	unless (exists $opt{p}) {
+	    my $p = $mp3->interpolate('%{TXXX[TPE1]}');
+	    if (length $p and not $opt{I}) {
+		$performer = "Performer: %{TXXX[TPE1]}";
+#	    } elsif ($mp3->have_id3v2_frame('TPE1')) {
+#		$performer = $mp3->interpolate("Artist: %{TPE1}\n");
+#	    } else {
+#		$performer = $mp3->interpolate("\n");
+	    }
+	}
 	print $mp3->interpolate(exists $opt{p} ? $opt{p} : <<EOC);
 Title:   %-50t Track: %n
-Artist:  %a
+%{TCOM:Composer: %\\{TCOM\\}
+}%{TEXT:Text: %\\{TEXT\\}
+}${performer}
 Album:   %-50l Year:  %y
 Comment: %-50c Genre: %g
 EOC
@@ -145,7 +158,7 @@ if ($opt{G}) {
 }
 if ($opt{R}) {
   require File::Find;
-  File::Find::find({wanted => sub {return unless -f and /\.mp3$/i; process_file $_},
+  File::Find::find({wanted => sub {return unless -f and /$opt{r}/o; process_file $_},
 		    no_chdir => 1}, @f);
 } else {
   my $f;
@@ -251,12 +264,16 @@ L<MP3::Tag::ParseData> (if present in the chain of heuristics).
 If option C<-G> is specified, the file names on the command line are considered
 as glob patterns.  This may be useful if the maximal command-line length is too
 low).  With the option C<-R> arguments can be directories, which are searched
-recursively for F<*.mp3> files to process.
+recursively for F<*.mp3> files to process; use option C<-r> to reset the
+regular expression to look for (the default is C<(?:\.mp3$)>).
 
 The option C<-E> should contain the letters of the options where
 C<\\, \n, \t> are interpolated (default: C<p>).  If the option C<-@> is given,
 all characters C<@> in the options are replaced by C<%>; this may be convenient
 if the shell treats C<%> specially.
+
+If option C<-I> is given, no guessworking for I<artist> field is performed
+on typeout.
 
 =head1 Extra translation
 
@@ -386,7 +403,8 @@ C<eng>), call
 
   mp3info2 -@P "fim;../text/@{d0}/@B.txt;@{COMM(eng)[lyrics]}" -Ru .
 
-inside the directory F<audio>.
+inside the directory F<audio>.  (Change C<fim> to C<Ffim> to ignore the
+audio files for which the corresponding text file does not exist.)
 
 Finish by a very simple example: all that the pattern
 

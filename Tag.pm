@@ -57,7 +57,7 @@ use vars qw/$VERSION %config/;
 	    update_length => [1],
 	  );
 
-$VERSION="0.9702";
+$VERSION="0.9703";
 
 =pod
 
@@ -1064,10 +1064,11 @@ sub interpolate {
 	    }
 	} elsif ($what eq '{' and $pattern =~ s/^U(\d+)}//) {	# User data
 	    $str = $self->get_user($1);
-	} elsif ($what eq '{' and $pattern =~ s/^(aC|tT|c[TC])}//) {
+	} elsif ($what eq '{' and $pattern =~ s/^(aC|tT|c[TC])}//) { # CDDB
 	    my $meth = $trans{$1};
 	    $str = $self->$meth();
 	} elsif ($what eq '{' and $pattern =~ s/^(!)?([talygcnfFeEABD])(:|\|\|?)((?:[^\\{}]|\\[\\{}])*)}//) {
+	    # Alternation with simple stuff
 	    my ($neg, $alt) = ($1, ($3 ne ':') && $3);
 	    die "Negation and alternation incompatible in interpolation"
 	      if $alt and $neg;
@@ -1084,26 +1085,26 @@ sub interpolate {
 	      }
 	    }
 	} elsif ($what eq '{' and $pattern =~ s/^ID3v1}//) {
-	    return '' unless $self->{ID3v1};
-	    $str = $self->{ID3v1}->as_bin;
+	    $str = $self->{ID3v1}->as_bin if $self->{ID3v1};
 	} elsif ($what eq '{') {	# id3v2 stuff
 	    $pattern =~ s/^((?:[^\\{}]|\\[\\{}])*)}// or die "Mismatched {} in pattern `$pattern'";
 	    $what = $1;
 	    unless ($self->{ID3v2} or $what =~ /^!/) {
 		die "No ID3v2 present" if $self->get_config('id3v2_missing_fatal');
-		return '';
+		next;
 	    }
-	    if ($what eq 'ID3v2') {
-		return '' unless $self->{ID3v2};
-		$str = $self->{ID3v2}->as_bin;
-	    } elsif ($what =~ /^\w{4}(?:\d{2,})?$/) {
+	    if ($what eq 'ID3v2') { # Whole tag
+		$str = $self->{ID3v2}->as_bin if $self->{ID3v2};
+	    } elsif ($what =~ /^\w{4}(?:\d{2,})?$/) { # Simple frame
 		(undef, $str) = $self->get_id3v2_frames($what);
 		$str = $str->{_Data} if $str and ref $str and exists $str->{_Data};
 	    } elsif ($what =~ /^(\w{4})(?:\(([^)]*)\))?(?:\[([^]]*)\])?$/) {
+	        # frame with optional (language)/[descriptor]
 		my $langs = defined $2 ? [split /,/, $2, -1] : '';
 		my ($fname, $shorts) = ($1, $3);
 		$str = $self->select_id3v2_frame($fname, $shorts, $langs);
 	    } elsif ($what =~ /^(!)?(\w{4}(?:\d{2,})?)(:|\|\|?)(.*)/s) {
+	        # alternation with simple frame
 	        my ($neg, $alt) = ($1, ($3 ne ':') && $3);
 		die "Negation and alternation incompatible in interpolation"
 		    if $alt and $neg;
@@ -1122,6 +1123,7 @@ sub interpolate {
 		  $str = $self->interpolate($str);
 		}
 	    } elsif ($what =~ /^(!)?(\w{4})(?:\(([^)]*)\))?(?:\[([^]]*)\])?(:|\|\|?)(.*)$/s) {
+	        # alternation with frame with optional (language)/[descriptor]
 	        my ($neg, $alt) = ($1, ($5 ne ':') && $5);
 		die "Negation and alternation incompatible in interpolation"
 		    if $alt and $neg;

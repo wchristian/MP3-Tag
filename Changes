@@ -1,3 +1,16 @@
+Release Name: 0.9703
+=======================
+typeset_audio_dir: would not work without -B switch
+	Add generation of cdbooklet with -B.
+mp3info2: when reporting contents, print "Composer" and "Text" lines too.
+	Without -I and -p, writes "Performer" line if TXXX{TPE1} is present.
+	New option -r.
+method interpolate() could return '' when ID3v2 tag was missing even if
+	the tag would affect only a part of the output.
+There was no way to inform the parser that it is OK if the parse data
+	is coming from file, and the file does not exist.  Add 'F' flag...
+
+
 Release Name: 0.9702
 =======================
 examples/type_mp3_dir.pl:

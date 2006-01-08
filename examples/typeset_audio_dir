@@ -17,6 +17,7 @@ if ($opt{'@'}) {
 }
 my $out_envelop_cdcover = \*STDOUT;
 my $out_envelop_text;
+my $out_envelop_12cm;
 if (defined $opt{B}) {
   $opt{B} =~ s,\\,/,g;
   open LIST, "> $opt{B}_list.tex" or die "open `$opt{B}_list.tex' for write: $!";
@@ -35,6 +36,13 @@ if (defined $opt{B}) {
     open TXT, "> $opt{B}_text.tex"
       or die "open `$opt{B}_text.tex' for write: $!";
     $out_envelop_text = \*TXT;
+  }
+  if (-e "$opt{B}_cdbooklet.tex") {
+    warn "Will not overwrite existing file `$opt{B}_cdbooklet.tex'.\n";
+  } else {
+    open _12CM, "> $opt{B}_cdbooklet.tex"
+      or die "open `$opt{B}_cdbooklet.tex' for write: $!";
+    $out_envelop_12cm = \*_12CM;
   }
 }
 
@@ -323,6 +331,75 @@ print $out_envelop_cdcover <<'EOP' if defined $out_envelop_cdcover;
 
 EOP
 
+print $out_envelop_12cm <<'EOP' if defined $out_envelop_12cm;
+% Postprocess this file with something like
+%   dvips -t landscape -f < This_File.ps | psbook | pstops "2:0(0,6cm)+1(0,-6cm)" > Output.ps
+
+\documentclass{article}
+
+% Use 2mm margin inside 12cm x 12cm page; page numbers fit only accidentally...
+\usepackage[centering,landscape,width=11.6truecm,height=11.6truecm,nohead,nofoot]{geometry}
+
+\usepackage{multicol}
+
+\def\COLUMNS{2}
+
+\usepackage[T2A]{fontenc}
+\usepackage[latin1]{inputenc}
+% cp866 for DosCyrillic, cp1251 for WinCyrillic
+%\usepackage[cp866]{inputenc}
+%\usepackage[cp1251]{inputenc}
+%\usepackage[russian]{babel}
+
+% This page style adds a frame about the text area
+\makeatletter
+\def\ps@framed{%	Add frame to current ornaments
+     \def\ps@framed@head{{%		Localize
+	\setlength\unitlength{1sp}%	So that \number works OK
+	\linethickness{0.2pt}%
+	% Text may actually go below \textheight - it gives the baseline...
+	%\advance\textheight\maxdepth	% It is localized anyway...
+	% Use this as a temporary register
+	\maxdepth=2truemm\relax
+	% Increase box size by 4mm
+	\advance\headsep -\maxdepth
+	\advance\textwidth \maxdepth
+	\advance\textwidth \maxdepth
+	\advance\textheight \maxdepth
+	\advance\textheight \maxdepth
+	\begin{picture}(0,0)%
+	% This is put at bottom of heading, so \headheight is above us
+	  \put(-\number\maxdepth,-\number\headsep){%
+		\begin{picture}(0,0)%
+		  \put(0,-\number\textheight){%
+		    \framebox(\number\textwidth,\number\textheight){}}%
+		\end{picture}}%
+	\end{picture}%
+     }}%
+     \let\ps@framed@oddhead\@oddhead
+     \let\ps@framed@evenhead\@evenhead
+     \def\@oddhead{\ps@framed@head\ps@framed@oddhead}%
+     \def\@evenhead{\ps@framed@head\ps@framed@evenhead}}
+\makeatother
+
+\begin{document}
+
+\pagestyle{framed}
+
+% These hardcoded 3pt, 4pt values are very questionable...
+\def\SETDIR#1{\bgroup\centering\bf\normalsize#1\par\egroup
+	      \vskip 3pt\hrule\vskip -3pt\vbox to 0pt{}\relax}
+\let\PREDIR\relax
+
+\def\preDir#1\postDir{\PREDIR\relax\def\PREDIR{\end{multicols}%
+					       \hrule\vskip 4pt\relax}%
+		      \begin{multicols}{\COLUMNS}[\SETDIR{#1}]\relax}
+\columnsep 9pt
+\columnseprule.4pt
+\multicolsep 3pt plus 4pt minus 3pt
+
+EOP
+
 print $out_envelop_text <<'EOP' if defined $out_envelop_text;
 \documentclass[12pt]{article}
 \usepackage[margin=2cm,nohead,nofoot]{geometry}
@@ -353,7 +430,8 @@ print $out_envelop_text <<'EOP' if defined $out_envelop_text;
 
 EOP
 
-for my $out (grep defined, $out_envelop_cdcover, $out_envelop_text) {
+for my $out (grep defined,
+	     $out_envelop_cdcover, $out_envelop_text, $out_envelop_12cm) {
   print $out $common1;
   print $out $cdcover_on
     if defined $out_envelop_cdcover and $out eq $out_envelop_cdcover;
@@ -366,7 +444,7 @@ EOP
 }
 
 
-print $out_envelop_cdcover <<'EOP' if defined $out_envelop_cdcover;
+print $out_envelop_cdcover <<'EOP' if $opt{B} and defined $out_envelop_cdcover;
 %\end{multicols}
 \end{bookletsheets}
 %\end{bookletsheetsTwo}
@@ -379,8 +457,16 @@ print $out_envelop_text <<'EOP' if defined $out_envelop_text;
 \end{document}
 EOP
 
-close $_ or warn "Error closing wrapper for write: $!"
-  for grep defined, $out_envelop_cdcover, $out_envelop_text;
+print $out_envelop_12cm <<'EOP' if defined $out_envelop_12cm;
+\end{multicols}
+\end{document}
+EOP
+
+if ($opt{B}) {			# Otherwise cdcover is STDOUT...
+  (close $_ or warn "Error closing wrapper for write: $!"), undef $_
+    for grep defined,
+      $out_envelop_cdcover, $out_envelop_text, $out_envelop_12cm;
+}
 
 my $d = Cwd::cwd;
 for (@ARGV) {
@@ -406,6 +492,15 @@ for (@ARGV) {
   print_this_mp3({});	# Flush the postponed data
   chdir $d or die;
 }
+
+print $out_envelop_cdcover <<'EOP' if defined $out_envelop_cdcover;
+
+%\end{multicols}
+\end{bookletsheets}
+%\end{bookletsheetsTwo}
+%\end{singlesheet}
+\end{document}
+EOP
 
 =head1 NAME
 
@@ -456,15 +551,16 @@ descriptors of the audio files during scan.
 
 gives basename of the output file.  Without this option the script
 will output to STDOUT.  With this option, script separates the layout
-from content, and produces 3 B<TeX> files:
+from content, and produces 4 B<TeX> files:
 
   basename_text.tex
   basename_cdcover.tex
+  basename_cdbooklet.tex
   basename_list.tex
 
 The last file contains the information about audio files encountered.
 
-The first two files are supposed to be human-editable; they will not
+The first three files are supposed to be human-editable; they will not
 be overwritten by a following rerun with the same basename given to
 the script.  By editing these files, one can choose between several
 encodings, multicolumn output, font size, interline spacing, margins,

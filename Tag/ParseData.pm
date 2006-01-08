@@ -3,7 +3,7 @@ package MP3::Tag::ParseData;
 use strict;
 use vars qw /$VERSION @ISA/;
 
-$VERSION="0.97";
+$VERSION="0.9703";
 @ISA = 'MP3::Tag::__hasparent';
 
 =pod
@@ -45,6 +45,10 @@ the string-to-parse is interpolated first;
 =item C<f>
 
 the string-to-parse is interpreted as the name of the file to read;
+
+=item C<F>
+
+added to C<f>, makes it non-fatal if the file does not exist;
 
 =item C<B>
 
@@ -144,7 +148,10 @@ sub parse_one {
     $data = $self->{parent}->interpolate($data) if $flags =~ /i/;
     if ($flags =~ /f/) {
 	local *F;
-	open F, "< $data" or die "Can't open file `$data' for parsing: $!";
+	unless (open F, "< $data") {
+	  return if $flags =~ /F/;
+	  die "Can't open file `$data' for parsing: $!";
+	}
 	binmode F if $flags =~ /B/;
 	local $/;
 	my $d = <F>;

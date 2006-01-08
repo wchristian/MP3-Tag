@@ -14,8 +14,8 @@ my $tl = "YaShSchZhYuIUIuiuChTchTCHtchIAIaiaJAJajaTCHTchtchJOJojo";
 
 # Assume that 1-char parts of TO have no REx charclass special characters
 
-my $lc = "ÿ גונעûףטמןר ש  אסהפדץיךכחüצז בםל‎‏ ק ¸ת";
-my $ll = "yavertyuiopshschasdfghjklz'czhbnmeyuche'";
+my $lc = "ÿ גונעûףטמןר ש  אסהפדץיךכחüצז בםל‎‏ ק ¸ת¹";
+my $ll = "yavertyuiopshschasdfghjklz'czhbnmeyuche'N";
 
 sub prepare_translation {
   my ($from, $to) = @_;
