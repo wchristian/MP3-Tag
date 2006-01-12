@@ -160,7 +160,7 @@ ok(has_1("test13.mp3", 1), "has 1");
 ok($mp3 = MP3::Tag->new("test13.mp3"), 'reinit');
 $mp3->get_tags;
 ok($mp3->{ID3v2}->{tagsize} == $ts, 'tagsize the same');
-ok($mp3->{ID3v2}->{padding_size} == 1500, 'padding_size the same');
+ok($mp3->{ID3v2}->{buggy_padding_size} == 1500, 'padding_size the same');
 #print STDERR "padding_found: $mp3->{ID3v2}->{padding_size}\n";
 ok($mp3->update_tags({title => "Another very very very very very very long title"}), 'update');
 

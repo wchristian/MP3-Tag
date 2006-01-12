@@ -12,7 +12,7 @@ use File::Basename;
 
 use vars qw /%format %long_names %res_inp @supported_majors %v2names_to_v3 $VERSION @ISA/;
 
-$VERSION="0.9701";
+$VERSION="0.9704";
 @ISA = 'MP3::Tag::__hasparent';
 
 my $trustencoding = $ENV{MP3TAG_DECODE_UNICODE};
@@ -128,9 +128,16 @@ the given short name.
 # gid  => group id, if any
 #
 
+sub un_syncsafe_4bytes ($) {
+    my ($rawsize,$size) = (shift, 0);
+    foreach my $b (unpack("C4", $rawsize)) {
+	$size = ($size << 7) + $b;
+    }
+    return $size;
+}
 
 sub get_frame_ids {
-        my $self=shift;
+        my $self = shift;		# Tag
         my $basic = shift;
 
 	# frame headers format for the different majors
@@ -147,16 +154,16 @@ sub get_frame_ids {
 		return \%return;
 	}
 
-	my $pos=$self->{frame_start};
-	if ($self->{flags}->{extheader}) {
-		warn "get_frame_ids: possible wrong IDs because of unsupported extended header\n";
-	}
+	my $pos = $self->{frame_start};
+#	if ($self->{flags}->{extheader}) {
+#		warn "get_frame_ids: possible wrong IDs because of unsupported extended header\n";
+#	}
 	my $buf;
-	while ($pos+$headersize < $self->{data_size}) {
+	while ($pos + $headersize < $self->{data_size}) {
 		$buf = substr ($self->{tag_data}, $pos, $headersize);
 		my ($ID, $size, $flags) = unpack($headerformat, $buf);
 		# tag size is handled differently for all majors
-		if ($self->{major}==2) {
+		if ($self->{major} == 2) {
 			# flags don't exist in id3v2.2
 			$flags=0;
 			my $rawsize=$size;
@@ -164,24 +171,17 @@ sub get_frame_ids {
 			foreach (unpack("C3", $rawsize)) {
 				$size = ($size << 8) + $_;
 			}
-		} elsif ($self->{major}==4) {
-			my $rawsize=$size;
-			$size=0;
-			foreach (unpack("C4", $rawsize)) {
-				$size = ($size << 7) + $_;
-			}
+		} elsif ($self->{major} == 4) {
+		    $size = un_syncsafe_4bytes $size;
 		} elsif ($self->{major}==3 and $size>255) {
 			# Size>255 means at least 2 bytes are used for size.
 			# Some programs use (incorectly) for the frame size
 			# the format of the tag size (snchsafe). Trying do detect that here
-			if ($pos+10+$size> $self->{data_size} ||
+			if ($pos + $headersize + $size > $self->{data_size} ||
 			    !exists $long_names{substr ($self->{tag_data}, $pos+$size,4)}) {
 				# wrong size or last frame
-				my $fsize=0;
-				foreach (unpack("x4C4", $buf)) {
-					$fsize = ($fsize << 7) + $_;
-				}
-				if ($pos+20+$fsize<$self->{data_size} &&
+				my $fsize = un_syncsafe_4bytes substr $buf, 4, 4;
+				if ($pos + 20 + $fsize < $self->{data_size} &&
 				    exists $long_names{substr ($self->{tag_data}, $pos+10+$fsize,4)}) {
 					warn "Probably wrong size format found in frame $ID. Trying to correct it\n";
 					#probably false size format detected, using corrected size
@@ -192,7 +192,7 @@ sub get_frame_ids {
 
 		if ($ID !~ "\000\000\000") {
 		        my $major = $self->{major};
-			if ($self->{major}==2) {
+			if ($major == 2) {
 				# most frame IDs can be converted directly to id3v2.3 IDs
 				 if (exists  $v2names_to_v3{$ID}) {
 				     # frame is direct convertable to major 3
@@ -208,7 +208,7 @@ sub get_frame_ids {
 				}
 			}
 
-			$self->{frames}->{$ID} = {flags=>check_flags($flags, $self->{major}),
+			$self->{frames}->{$ID} = {flags=>$self->check_flags($flags),
 						  major=>$major,
 						  data=>substr($self->{tag_data}, $pos+$headersize, $size)};
 			$pos += $size+$headersize;
@@ -306,6 +306,12 @@ sub get_frame {
 
     my $result = $frame->{data};
 
+#   Some frame format flags indicate that additional information fields
+#   are added to the frame. This information is added after the frame
+#   header and before the frame data in the same order as the flags that
+#   indicates them. I.e. the four bytes of decompressed size will precede
+#   the encryption method byte. These additions affects the 'frame size'
+#   field, but are not subject to encryption or compression.
     if ($frame->{flags}->{groupid}) {
 	$frame->{gid} = substring $result, 0, 1;
 	$result = substring $result, 1;
@@ -449,8 +455,16 @@ sub build_tag {
 		    warn "Group ids are not supported in writing\n";
 	    }
 
+	    # unsync
+	    my $extra = 0;
+	    if ( $self->{version} == 3
+		 and ($self->get_config('id3v23_unsync_size_w'))->[0]
+		 or $self->{version} >= 4 ) {
+		$extra++ while $data =~ /\xFF(?=[\x00\xE0-\xFF])/g;
+	    }
+
 	    #prepare header
-	    my $header = substr($frameid,0,4) . pack("Nn", length ($data), build_flags(%flags));
+	    my $header = substr($frameid,0,4) . pack("Nn", $extra + length ($data), build_flags(%flags));
 
 	    $tag_data .= $header . $data;
     }
@@ -624,7 +638,7 @@ sub as_bin ($;$$) {
     my $header = 'ID3' . chr(3) . chr(0);
 
     if ($update_file) {
-	my $o_tsize = $self->{padding_size} + $self->{tagsize};
+	my $o_tsize = $self->{buggy_padding_size} + $self->{tagsize};
 	my $add_padding = 0;
 	if ( $o_tsize < $n_tsize
 	     or ($self->get_config('id3v2_shrink'))->[0] ) {
@@ -642,7 +656,7 @@ sub as_bin ($;$$) {
 	      my @insert = [0, $o_tsize+10, $n_tsize + 10];
 	      return undef unless insert_space($self, \@insert) == 0;
 	    } else {	# Slot is not filled by 0; fill it manually
-	      $add_padding = $n_padding - $self->{padding_size};
+	      $add_padding = $n_padding - $self->{buggy_padding_size};
 	    }
 	    $self->{tagsize} = $n_tsize;
 	} else {	# Include current "padding" into n_tsize
@@ -830,8 +844,9 @@ sub add_frame {
 	++$self->{extra_frames}->{$ID}
 	  if $c > ($self->{extra_frames}->{$ID} || 0);
     }
-    $self->{frames}->{$fname} = {flags=>check_flags(0), major=>3,
-				 data=>$datastring };
+    $self->{frames}->{$fname} = {flags => $self->check_flags(0),
+				 major => $self->{frame_major},
+				 data => $datastring };
     $self->{modified}++;
     return $fname;
 }
@@ -1419,6 +1434,7 @@ sub new {
     $self->{frame_start}=0;
     # default ID3v2 version
     $self->{major}=3;
+    $self->{frame_major}=3;	# major for new frames
     $self->{revision}=0;
     $self->{version}= "$self->{major}.$self->{revision}";
 
@@ -1427,7 +1443,7 @@ sub new {
 	    $self->{tag_data} = '';
 	    $self->{data_size} = 0;
 	} else {
-	    $mp3obj->read(\$self->{tag_data}, $self->{tagsize});
+	    $mp3obj->read(\$self->{tag_data}, $self->{tagsize} + $self->{footer_size});
 	    $self->{data_size} = $self->{tagsize};
 	    # un-unsynchronize comes in all versions first
 	    if ($self->{flags}->{unsync}) {
@@ -1438,24 +1454,24 @@ sub new {
 	    # described in tag specification, so get out if compression is found
 	    if ($self->{flags}->{compress_all}) {
 		    # can we test if it is simple zlib compression and use this?
-		    warn "ID3v".$self->{version}." compression isn't supported. Cannot read tag\n";
+		    warn "ID3v".$self->{version}." [whole tag] compression isn't supported. Cannot read tag\n";
 		    return undef;
 	    }
 	    # read the ext header if it exists
 	    if ($self->{flags}->{extheader}) {
-		unless ($self->read_ext_header(substr ($self->{tag_data}, 0, 14))) {
+		$self->{extheader} = substr ($self->{tag_data}, 0, 14);
+		unless ($self->read_ext_header()) {
 		    return undef; # ext header not supported
 		}
 	    }
-	    if ($self->{flags}->{footer}) {
-		    $self->{frame_start} += 10; # footers size is 10 bytes
-		    warn "ID3v".$self->{version}." footer isn't supported. Ignoring it\n";
-	    }
+	    $self->{footer} = substr $self->{tag_data}, -$self->{footer_size}
+		if $self->{footer_size};
+	    # Treat (illegal) padding after the tag
 	    if (($mp3obj->get_config('id3v2_mergepadding'))->[0]) {
 		my $d;
 		while ($mp3obj->read(\$d, 1024)) {
 		  my ($z) = ($d =~ /^(\0*)/);
-		  $self->{padding_size} += length $z;
+		  $self->{buggy_padding_size} += length $z;
 		  last unless length($z) == length($d);
 		}
 	    }
@@ -1468,7 +1484,7 @@ sub new {
 	    $self->{tag_data}='';
 	    $self->{tagsize} = -10;
 	    $self->{data_size} = 0;
-	    $self->{padding_size} = 0;
+	    $self->{buggy_padding_size} = 0;
 	    return $self;
 	}
     }
@@ -1499,29 +1515,28 @@ sub read_header {
 	if (substr ($header,0,3) eq "ID3") {
 		# flag meaning for all supported ID3v2.x versions
 		my @flag_meaning=([],[], # v2.0 and v2.1 aren't supported yet
+				# 2.2
 			       ["unknown","unknown","unknown","unknown","unknown","unknown","compress_all","unsync"],
+				# 2.3
 			       ["unknown","unknown","unknown","unknown","unknown","experimental","extheader","unsync"],
+				# 2.4
 			       ["unknown","unknown","unknown","unknown","footer","experimental","extheader","unsync"],
-			       ["unknown","unknown","unknown","unknown","footer","experimental","extheader","unsync"],
+				# ????
+			       #["unknown","unknown","unknown","unknown","footer","experimental","extheader","unsync"],
 			      );
 
 		# extract the header data
 		my ($major, $revision, $pflags) = unpack ("x3CCC", $header);
 		# check the version
 		if ($major >= $#supported_majors or $supported_majors[$major] == 0) {
-			warn "Unknown ID3v2-Tag version: V$major.$revision\n";
+			warn "Unknown ID3v2-Tag version: v2.$major.$revision\n";
 			print "| $major > ".($#supported_majors)." || $supported_majors[$major] == 0\n";
 			print "| ",join(",",@supported_majors),"n";
 			print "$_: $supported_majors[$_]\n" for (0..5);
 			return 0;
 		}
 		if ($revision != 0) {
-			warn "Unknown ID3v2-Tag revision: V$major.$revision\nTrying to read tag\n";
-		}
-		# get the tag size
-		my $size=0;
-		foreach (unpack("x6C4", $header)) {
-			$size = ($size << 7) + $_;
+			warn "Unknown ID3v2-Tag revision: v2.$major.$revision\nTrying to read tag\n";
 		}
 		# check the flags
 		my $flags={};
@@ -1531,12 +1546,16 @@ sub read_header {
  			$flags->{$flag_meaning[$major][$i]}=1 if $_;
 			$i++;
 		}
-		$self->{version} = "$major.$revision";
-		$self->{major}=$major;
-		$self->{revision}=$revision;
-		$self->{tagsize} = $size;
-		$self->{padding_size} = 0;	# Fake so far
+		$self->{version}  = "$major.$revision";
+		$self->{major}    = $major;
+		$self->{revision} = $revision;
+		# 2.3: includes extHeader, frames (as written), and the padding
+		#	excludes the header size (10)
+		# 2.4: also excludes the footer (10 if present)
+		$self->{tagsize} = un_syncsafe_4bytes substr $header, 6, 4;
+		$self->{buggy_padding_size} = 0;	# Fake so far
 		$self->{flags} = $flags;
+		$self->{footer_size} = ($self->{flags}->{footer} ? 10 : 0);
 		return 1;
 	}
 	return 0; # no ID3v2-Tag found
@@ -1545,11 +1564,41 @@ sub read_header {
 # Reads the extended header and adapts the internal counter for the start of the
 # frame data. Ignores the rest of the ext. header (as CRC data).
 
-sub read_ext_header {
-    my ($self, $ext_header) = @_;
+# v2.3:
+#  Total size - 4 (4bytes, 6 or 10), flags (2bytes), padding size (4bytes),
+#    OptionalCRC.
+#  Flags: (subject to unsyncronization)
+#    %x0000000 00000000
+#    x - CRC data present
+
+#If  this flag is set four bytes of CRC-32 data is appended to the extended header. The CRC
+#should  be calculated before unsynchronisation on the data between the extended header and
+#the padding, i.e. the frames and only the frames.
+#                              Total frame CRC   $xx xx xx xx
+
+# v2.4: Total size (4bytes, unsync), length of flags (=1), flags, Optional part.
+# 2.4 flags (with the corresponding "Optional part" format):
+#      %0bcd0000
+#    b - Tag is an update
+#         Flag data length       $00
+#    c - CRC data present
+#         Flag data length       $05
+#         Total frame CRC    5 * %0xxxxxxx
+#    d - Tag restrictions
+#         Flag data length       $01
+#         Restrictions           %ppqrrstt
+
+sub read_ext_header {	# XXXX in 2.3, it should be unsyncronized
+    my $self = shift;
+    my $ext_header = $self->{extheader};
     # flags, padding and crc ignored at this time
-    my $size = unpack("N", $ext_header);
-    $self->{frame_start} += $size+4; # 4 bytes extra for the size
+    my $size;
+    if ($self->{major}==4) {
+	$size = un_syncsafe_4bytes substr $ext_header, 0, 4;
+    } else { # 4 bytes extra for the size field itself
+	$size = 4 + unpack("N", $ext_header);
+    }
+    $self->{frame_start} += $size;
     return 1;
 }
 
@@ -1654,8 +1703,35 @@ sub get_format {
 #0/1 as value for unset/set.
 sub check_flags {
     # how to detect unknown flags?
-    my ($flags)=@_;
-    my @flagmap=qw/0 0 0 0 0 groupid encryption compression 0 0 0 0 0 read_only file_preserv tag_preserv/;
+    my ($self, $flags)=@_;
+    # %0abc0000 %0h00kmnp (this is byte1 byte2)
+    my @flagmap4 = qw/data_length unsync encryption compression unknown_j unknown_i groupid 0
+		      unknown_g unknown_f unknown_e unknown_d read_only file_preserv tag_preserv 0/;
+    # %abc00000 %ijk00000
+    my @flagmap3 = qw/unknown_o unknown_n unknown_l unknown_m unknown_l groupid encryption compression
+		      unknown_h unknown_g unknown_f unknown_e unknown_d read_only file_preserv tag_preserv/;
+    # flags were unpacked with 'n', so pack('v') gives byte2 byte1
+    # unpack('b16') puts more significant bits to the right, separately for 
+    # each byte; so the order is as specified above
+# 2.4:
+#     %0abc0000 %0h00kmnp (this is byte1 byte2)
+#    a - Tag alter preservation
+#    b - File alter preservation
+#    c - Read only
+#    h - Grouping identity
+#    k - Compression
+#    m - Encryption
+#    n - Unsynchronisation
+#    p - Data length indicator
+# 2.3:
+#     %abc00000 %ijk00000
+#    a - Tag alter preservation
+#    b - File alter preservation
+#    c - Read only
+#    i - Compression
+#    j - Encryption
+#    k - Grouping identity
+    my @flagmap = $self->{major} == 4 ? @flagmap4 : @flagmap3;
     my %flags = map { (shift @flagmap) => $_ } split (//, unpack('b16',pack('v',$flags)));
     $flags{unchanged}=1;
     return \%flags;

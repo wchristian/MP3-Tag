@@ -108,7 +108,11 @@ EOD
 # a) rename all .mp3 to .wav: pfind . "s/\.mp3$/.wav/i"
 # b) run: eat_wav_mp3_header.pl -FdI -R .
 
-getopts('FGRdsI', \%opt); # Force, Glob, recurse, delete, silent, ID3v2-header-OK
+# or, to list MP3 files with RIFF header
+#  eat_wav_mp3_header.pl -IDM -R .
+
+
+getopts('FGRdsIDM', \%opt); # Force, Glob, recurse, delete, silent, ID3v2-header-OK, Dry-run, input-is MP3
 if ($opt{G}) {
   require File::Glob;			# "usual" glob() fails on spaces...
   @ARGV = map File::Glob::bsd_glob($_), @ARGV;
@@ -116,12 +120,17 @@ if ($opt{G}) {
 
 sub process_file ($) {
   my $f = shift;
-  print "$f\n" unless $opt{s};
+  print "$f\n" unless $opt{s} or $opt{D};
 
   open IN, "< $f" or die;
   binmode IN;
 
   my $rc = wav_eat_header \*IN;
+
+  if ($opt{D}) {	# Report only
+    print "$f\n" if defined $rc->{type2};
+    return;
+  }
   (my $o = $f) =~ s/\.wav$/.mp3/i or die "`$f' is not with extension .wav";
 
   unless (defined $rc->{type2}) {
@@ -147,7 +156,7 @@ sub process_file ($) {
 
 if ($opt{R}) {
   require File::Find;
-  File::Find::find({wanted => sub {return unless -f and /\.wav$/i; process_file $_},
+  File::Find::find({wanted => sub {return unless -f and ($opt{M} ? /\.mp3$/i : /\.wav$/i); process_file $_},
 		    no_chdir => 1}, @ARGV);
 } else {
   for my $f (@ARGV) {

@@ -13,10 +13,9 @@ To fix files with this unwanted padding, one can do the following:
 To do "a", enable the option 'id3v2_mergepadding' when you update tags.
 
 To do "b" enable the option 'id3v2_shrink' when you update tags.  (With
-method 'update_tag', you may want to insert and delete a dummy tag, such as
-%{COMM[dummy]}).
+method 'update_tag', you may want to specify the $force2 option; with mp3info2,
+use -2 option).
 
 Example:
 
-  mp3info2 -C "~id3v2_shrink=1~id3v2_mergepadding=1"		\
-	-@uP "mz;x;@{COMM[dummy]};;;mz;;@{COMM[dummy]}" -R .
+  mp3info2 -C "~id3v2_shrink=1~id3v2_mergepadding=1" -u2 -R .

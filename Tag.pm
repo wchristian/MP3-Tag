@@ -53,11 +53,13 @@ use vars qw/$VERSION %config/;
 	    id3v2_sizemult	=> [512],
 	    id3v2_shrink	=> [0],
 	    id3v2_mergepadding  => [0],
+	    id3v23_unsync_size_r => [0],
+	    id3v23_unsync_size_w => [0],
 	    parse_minmatch => [0],
 	    update_length => [1],
 	  );
 
-$VERSION="0.9703";
+$VERSION="0.9704";
 
 =pod
 
@@ -620,6 +622,15 @@ for the settings 0 and 1; note that greediness of C<%l> does not matter,
 thus the value of 1 is equivalent for the value of C<t> for this particular
 pattern.
 
+=item id3v23_unsync_size_w
+
+Version 2.3 if the standard is not clear about frame size field, whether it
+is the size of the frame after unsyncronization, or not.  Old versions
+were assuming that this size is one before unsyncronization (as in v2.2).
+Setting these values will assume another interpretation (as in v2.4) for
+write; experimental - to test why ITunes refuse to
+handle unsyncronized tags.
+
 =item *
 
 Later there will be probably more things to configure.
@@ -641,7 +652,7 @@ sub config {
 		   comment_remove_date extension id3v2_missing_fatal
 		   id3v2_frame_empty_ok id3v2_minpadding id3v2_sizemult
 		   id3v2_shrink id3v2_mergepadding
-		   parse_minmatch);
+		   parse_minmatch id3v23_unsync_size_w);
     my @tr = map "translate_$_", qw( title track artist album comment year genre );
     $conf_rex = '^(' . join('|', @known, @tr) . ')$' unless $conf_rex;
 
@@ -1594,13 +1605,14 @@ sub time_mm_ss {		# Borrowed from MP3::Info
 my @channel_modes = ('stereo', 'joint stereo', 'dual channel', 'mono');
 sub channel_mode	{ $channel_modes[shift->channel_mode_int] }
 
-=item update_tags( [ $data ] )
+=item update_tags( [ $data,  [ $force2 ]] )
 
   $mp3 = MP3::Tag->new($filename);
   $mp3->update_tags();			# Fetches the info, and updates tags
 
-This method updates ID3v1 and ID3v2 tags (the latter only if needed) with
-the the information about title, artist, album, year, comment, track,
+This method updates ID3v1 and ID3v2 tags (the latter only if in-memory copy
+contains any data, or $data does not fit ID3v1 restrictions, or $force2 argument is given)
+with the the information about title, artist, album, year, comment, track,
 genre from the hash reference $data.  The format of $data is the same as
 one returned from autoinfo() (with or without the optional argument 'from').
 The fields which are marked as coming from ID3v1 or ID3v2 tags are not updated
@@ -1617,7 +1629,7 @@ needed.
 =cut
 
 sub update_tags {
-    my ($mp3, $data) = (shift, shift);
+    my ($mp3, $data, $force) = (shift, shift, shift);
 
     $mp3->get_tags;
     $data = $mp3->autoinfo('from') unless defined $data;
@@ -1635,8 +1647,8 @@ sub update_tags {
     my $do_length
       = (defined $mp3->{ms}) ? ($mp3->get_config('update_length'))->[0] : 0;
 
-    return $mp3 
-      if $mp3->{ID3v1}->fits_tag($data)
+    return $mp3
+      if not $force and $mp3->{ID3v1}->fits_tag($data)
 	and not exists $mp3->{ID3v2} and $do_length < 2;
 
     $mp3->new_tag("ID3v2") unless exists $mp3->{ID3v2};
@@ -1709,10 +1721,55 @@ Some more examples:
       );
     }' list_of_audio_files
 
+=head1 Problems with ID3 format
+
+The largest problem with ID3 format is that the first versions of these
+format were absolutely broken (underspecified).  It I<looks> like the newer
+versions of this format resolved most of these problems; however, in reality
+they did not (due to unspecified backward compatibility, and
+grandfathering considerations).
+
+What are the problems with C<ID3v1>?  First, one of the fields was C<artist>,
+which does not make any sense.  In particular, different people/publishers
+would put there performer(s), composer, author of text/lyrics, or a combination
+of these.  The second problem is that the only allowed encoding was
+C<iso-8859-1>; since most of languages of the world can't be expressed
+in this encoding, this restriction was completely ignored, thus the
+encoding is essentially "unknown".
+
+Newer versions of C<ID3> allow specification of encodings; however,
+since there is no way to specify that the encoding is "unknown", when a
+tag is automatically upgraded from C<ID3v1>, it is most probably assumed to be
+in the "standard" C<iso-8859-1> encoding.  Thus impossibility to
+distinguish "unknown, assumed C<iso-8859-1>" from "known to be C<iso-8859-1>"
+in C<ID3v2>, essentially, makes any encoding specified in the tag "unknown"
+(or, at least, "untrusted").
+
+This is why this module provides what some may consider only lukewarm support
+for encoding field in ID3v2 tags: if done fully automatic, it can allow
+instant propagation of wrong information; and propagation in a form which
+is very hard to undo.
+
+Likewise, the same happens with the C<artist> field in C<ID3v1>.  Since there
+is no way to specify just "artist, type unknown" in C<ID3v2> tags, when
+C<ID3v1> tag is automatically upgraded to C<ID3v2>, the content would most
+probably be put in the "main performer", C<TPE1>, tag.  As a result, the
+content of C<TPE1> tag is also "untrusted" - it may contain, e.g., composer.
+
+In my opinion, a different field should be used for "known to be principal
+performer"; for example, the script F<mp3info2> shipped with this module
+uses C<%{TXXX[TPE1]}> in preference to C<%{TPE1}>.
+
+For example, interpolate C<%{TXXX[TPE1]|TPE1}> or C<%{TXXX[TPE1]|a}> -
+this will use the frame C<TXXX> with identifier C<TPE1> if present, if not,
+it will use the frame C<TPE1> (the first example), or will try to get I<artist>
+by other means (including C<TPE1> frame) (the second example).
+
 =head1 SEE ALSO
 
 L<MP3::Tag::ID3v1>, L<MP3::Tag::ID3v2>, L<MP3::Tag::File>,
-L<MP3::Tag::ParseData>, L<MP3::Tag::Inf>, L<MP3::Tag::CDDB_File>.
+L<MP3::Tag::ParseData>, L<MP3::Tag::Inf>, L<MP3::Tag::CDDB_File>, L<mp3info2>,
+L<typeset_audio_dir>.
 
 =head1 COPYRIGHT
 

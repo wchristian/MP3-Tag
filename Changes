@@ -1,3 +1,35 @@
+Release Name: 0.9704
+=======================
+
+Document why using "encoding" and "TPE1" mindlessly is a bad idea.
+
+Cleaning up read support of v2.4.
+
+Better error message for version mismatch.
+
+Do not warn "not supported" any more if the footer is found (how could it be
+"supported" anyway, except for skipping, which is already done, [was wrong]?).
+(untested)
+
+Extended header parsed for v2.4 too.	(untested)
+
+Footer was treated wrong...  Apparently frame flags were extracted very wrong
+as well... (untested)  Unknown frame flags are mapped to 'unknown_<letter>'.
+
+Rename 'padding_size' field to 'buggy_padding_size' to avoid confusion with
+ID3v2 padding (it is the padding after the tag [unrelated to the standard],
+not the padding inside tag).
+
+fits_tag(): return FALSE if data contains chars above 255.
+update_tags(): better docs, new argument $force2.
+
+mp3info2: in the standard report, "artist" was offset by one space.  New option
+   -2.  README.shrink updated correspondingly.
+
+typeset_audio_dir: more comments on duplex output.
+
+eat_wav_mp3_header: new options -D for dry run, -M for finding .mp3 files.
+
 Release Name: 0.9703
 =======================
 typeset_audio_dir: would not work without -B switch

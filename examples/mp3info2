@@ -1,3 +1,4 @@
+extproc perl -Sw
 #!/usr/bin/perl -w
 
 use FindBin;
@@ -10,7 +11,7 @@ use strict;
 BEGIN { eval 'require Music_Translate_Fields' }
 
 my %opt = (r => '(?i:\.mp3$)');
-getopts('c:a:t:l:n:g:y:uDp:C:P:E:G@Rr:I', \%opt);
+getopts('c:a:t:l:n:g:y:uDp:C:P:E:G@Rr:I2', \%opt);
 exec 'perldoc', '-F', $0 unless @ARGV;
 
 # keys of %opt to the MP3::Tag keywords:
@@ -76,7 +77,7 @@ sub process_file ($) {
 File: %F
 EOC
 	my $data = $mp3->autoinfo('from');
-	my $modify;
+	my $modify = $opt{2};
 	my @args;
 	for my $k (keys %trans) {
 	  if (exists $opt{$k}) {
@@ -113,7 +114,7 @@ EOC
 	    $data = $mp3->autoinfo('from');
 	}
 
-	my $performer = 'Artist: %a';
+	my $performer = 'Artist:  %a';
 	unless (exists $opt{p}) {
 	    my $p = $mp3->interpolate('%{TXXX[TPE1]}');
 	    if (length $p and not $opt{I}) {
@@ -145,7 +146,7 @@ EOC
 	return unless ($modify or $opt{u} and $mp3->is_id3v2_modified)
 	    and not $opt{D};		# Dry run
 
-	$mp3->update_tags($data);
+	$mp3->update_tags($data, $opt{2});
     } else {
 	print "Not found...\n";
     }
@@ -233,7 +234,8 @@ C<autoinfo> configuration (and related fields C<author> etc).
 
 The option C<-u> writes (C<u>pdates) the fetched information to the MP3 ID3
 tags.  This option is assumed if tag elements are set via command-line
-options.  (This option is overwritten by C<-D> option.)
+options.  (This option is overwritten by C<-D> option.)  If C<-2> option
+is also given, forces write of ID3v2 tag even if the info fits the ID3v1 tag.
 
 The option C<-p> prints a message using the next argument as format
 (by default C<\\>, C<\t>, C<\n> are replaced by backslash, tab and newline;
