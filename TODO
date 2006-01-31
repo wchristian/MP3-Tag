@@ -38,3 +38,5 @@ MP3::Tag::ID3v2.pm
 
 * frames like TMED who have to be specially encoded, are doing this only
   when the frame is read, not when it is written 
+
+* Support for v2.4 output (is input fully supported now?)

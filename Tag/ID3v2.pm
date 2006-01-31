@@ -12,13 +12,19 @@ use File::Basename;
 
 use vars qw /%format %long_names %res_inp @supported_majors %v2names_to_v3 $VERSION @ISA/;
 
-$VERSION="0.9704";
+$VERSION="0.9705";
 @ISA = 'MP3::Tag::__hasparent';
 
 my $trustencoding = $ENV{MP3TAG_DECODE_UNICODE};
 $trustencoding = 1 unless defined $trustencoding;
 
 my $decode_utf8 = $ENV{MP3TAG_DECODE_UTF8};
+$decode_utf8 = 1 unless defined $decode_utf8;
+my $encode_utf8 = $decode_utf8;
+
+my $default_encoding_read  = $ENV{MP3TAG_DECODE_DEFAULT};
+# Not implemented yet...
+my $default_encoding_write = $ENV{MP3TAG_ENCODE_DEFAULT};
 
 =pod
 
@@ -29,7 +35,7 @@ MP3::Tag::ID3v2 - Read / Write ID3v2.x.y tags from mp3 audio files
 =head1 SYNOPSIS
 
 MP3::Tag::ID3v2 supports
-  * Reading of ID3v2.2.0 and ID3v2.3.0 tags
+  * Reading of ID3v2.2.0 and ID3v2.3.0 tags (some ID3v2.4.0 frames too)
   * Writing of ID3v2.3.0 tags
 
 MP3::Tag::ID3v2 is designed to be called from the MP3::Tag module.
@@ -264,7 +270,8 @@ it should be a text string and printable.
 
 If the second parameter 'raw' is given, the whole frame data is returned,
 but not the frame header.  If the second parameter is 'intact', no mangling
-of embedded C<"\0"> and trailing spaces is performed.
+of embedded C<"\0"> and trailing spaces is performed.  If the second parameter
+is 'hash', then, additionally, the result is always in the hash format.
 
 If the data was stored compressed, it is
 uncompressed before it is returned (even in raw mode). Then $info contains a string
@@ -332,13 +339,17 @@ sub get_frame {
     my $format = get_format($fname);
     if (defined $format) {
       $format = [map +{%$_}, @$format], $format->[-1]{data} = 1
-	if defined $raw and $raw eq 'intact';
+	if defined $raw and ($raw eq 'intact' or $raw eq 'hash');
       $result = extract_data($result, $format);
-      if (scalar keys %$result == 1) {
-	if (exists $result->{Text}) {
-	  $result= $result->{Text};
-	} elsif (exists $result->{URL}) {
-	  $result= $result->{URL};
+      unless (defined $raw and $raw eq 'hash') {
+	my $k = scalar keys %$result;
+	$k-- if exists $result->{encoding};
+	if ($k == 1) {
+	  if (exists $result->{Text}) {
+	    $result= $result->{Text};
+	  } elsif (exists $result->{URL}) {
+	    $result= $result->{URL};
+	  }
 	}
       }
     }
@@ -625,6 +636,9 @@ sub as_bin ($;$$) {
     my $tag_data = $self->build_tag($ignore_error);
     return unless defined $tag_data;
 
+    # printing this will ruin flags if they are \x80 or above.
+    die "panic: prepared raw tag contains wide characters"
+      if $tag_data =~ /[^\x00-\xFF]/;
     # perhaps search for first mp3 data frame to check if tag size is not
     # too big and will override the mp3 data
 
@@ -780,6 +794,12 @@ Examples:
 
 =cut 
 
+# 0 = latin1 (effectively: unknown)
+# 1 = UTF-16 with BOM
+# 2 = UTF-16be, no BOM
+# 3 = UTF-8
+my @enc_types = qw( iso-8859-1 UTF-16 UTF-16BE utf8 );
+
 sub add_frame {
     my ($self, $fname, @data) = @_;
     $self->get_frame_ids() unless exists $self->{frameIDs};
@@ -793,18 +813,28 @@ sub add_frame {
 	@data = map {""} @$format;
     }
 
-    # encoding is not used yet
     my $encoding=0;
     my $defenc=0;
     $defenc = 1 if (($#data == ($args - 1)) && ($format->[0]->{name} eq "_encoding"));
     return 0 unless $#data == $args || defined $defenc;
 
-    my $datastring="";
+    my ($datastring, $have_high) = "";
+    if ($defenc) {
+        my @d = @data;
+        foreach my $fs (@$format) {
+            $have_high = 1 if $fs->{encoded} and $d[0] and $d[0] =~ /[^\x00-\xff]/;
+            shift @d unless $fs->{name} eq "_encoding";
+        }
+    }
     foreach my $fs (@$format) {
 	if ($fs->{name} eq "_encoding") {
-	    $encoding = shift @data unless $defenc;
-	    warn "Encoding of text not supported yet\n" if $encoding;
-	    $encoding = 0; # other values are not used yet, so let's not write them in a tag
+	    if ($defenc) {
+		$encoding = ($have_high ? 1 : 0);	# v2.3 only has 0, 1
+	    } else {
+		$encoding = shift @data;
+	    }
+	    #warn "Encoding of text not supported yet\n" if $encoding;
+	    #$encoding = 0; # other values are not used yet, so let's not write them in a tag
 	    $datastring .= chr($encoding);
 	    next;
 	}
@@ -830,6 +860,24 @@ sub add_frame {
 	  }
 	}elsif (exists $fs->{mlen} and $fs->{mlen}>0) {
 	    $d .= " " x ($fs->{mlen}-length($d)) if length($d) < $fs->{mlen};
+	}
+	if ($fs->{encoded}) {
+	  if ($encoding) {
+	    # 0 = latin1 (effectively: unknown)
+	    # 1 = UTF-16 with BOM
+	    # 2 = UTF-16be, no BOM
+	    # 3 = UTF-8
+	    require Encode;
+	    if ($defenc or $encode_utf8) {
+	      $d = Encode::encode($enc_types[$encoding], $d);
+	    } elsif ($encoding < 3) {
+	      # Reencode from UTF-8
+	      $d = Encode::decode('UTF-8', $d);
+	      $d = Encode::encode($enc_types[$encoding], $d);
+	    }
+	  } elsif (0) {	# $encoding == 0...
+		# Guessing not done yet
+	  }
 	}
 	$datastring .= $d;
     }
@@ -858,7 +906,8 @@ sub add_frame {
   $id3v2->change_frame($fname, @data);
 
 Change an existing frame, which is identified by its
-short name $fname. @data must be same as in add_frame;
+short name $fname eg as returned by get_frame_ids().
+@data must be same as in add_frame().
 
 If the frame $fname does not exist, undef is returned.
 
@@ -884,7 +933,7 @@ sub change_frame {
   $id3v2->remove_frame($fname);
 
 Remove an existing frame. $fname is the short name of a frame,
-eg as returned by C<get_frame_ids>.
+eg as returned by get_frame_ids().
 
 You have to call write_tag() to save the changes to the file.
 
@@ -1117,14 +1166,18 @@ Description fields (if the corresponding arguments were defined).
 The lists $descrs and $languages of one element can be flattened to
 become this element (as with C<''> above).  If the lists are not
 defined, no restriction is applied.  Language of C<''> means no
-restriction on language.
+restriction on language.  Language of the form C<'#NUMBER'> selects the
+NUMBER's frame with frame name $fname.
 
-If optional argument $newtext is given, the found frames are removed; if
-$newtext is defined, a new frame is created (the first elements of
-$descrs and $languages are used as the short description and the language,
-default to C<''> and C<XXX>).
+If optional argument $newtext is given, all the found frames are
+removed; if $newtext is defined, a new frame is created (the first
+elements of $descrs and $languages are used as the short description
+and the language, default to C<''> and C<XXX>); otherwise the count of
+removed frames is returned.
 
 =cut
+
+sub __to_lang($) {my $l = shift; return $l if $l eq 'XXX'; lc $l}
 
 sub _frame_select {
     # "Quadratic" in number of comment frames and select-short/lang specifiers
@@ -1134,7 +1187,7 @@ sub _frame_select {
     $shorts = [$shorts] if defined $shorts and not ref $shorts;
     if (defined $languages) {
 	$languages = [$languages] unless ref $languages;
-	@$languages = map lc, @$languages;
+	@$languages = map __to_lang($_), @$languages;
     }
     my @info = get_frames($self, $fname);
     shift @info;
@@ -1154,7 +1207,7 @@ sub _frame_select {
 		    $c++;
 		    push(@by_lang, [$c, $f])	# May create duplicates
 			if defined $f and (defined $f->{Language}
-					   and $l eq lc $f->{Language} 
+					   and $l eq __to_lang $f->{Language} 
 					   or $l eq '');
 		}
 	    }
@@ -1171,24 +1224,25 @@ sub _frame_select {
 	    if defined $frame and defined $frame->{Description}
 		 and grep $_ eq $frame->{Description}, @$shorts;
     }
-    return scalar @select unless $content;
+    return @select unless $content;
     if (@_ < 3) {			# Read-only access
 	return unless @select;
 	my $res = $select[0][1]; # Only defined frames here...
 	my $c = keys %$res;
 	$c-- if exists $res->{Description} and defined $shorts;
 	$c-- if exists $res->{Language} and defined $languages;
+	$c-- if exists $res->{encoding};
 	return $select[0][1]->{Text} if $c <= 1 and exists $select[0][1]->{Text};
 	return $select[0][1]->{URL} if $c <= 1 and exists $select[0][1]->{URL};
 	return $select[0][1]->{_Data} if $c <= 1 and exists $select[0][1]->{_Data};
 	return $res;
     }
     # Write
-    for my $f (@select) {
+    for my $f (reverse @select) { # Removal may break the numeration???
 	($c, my $frame) = @$f;
-	$self->remove_frame($c ? sprintf '%s%02d', $fname, $c : $fname);
+	$self->remove_frame($c ? sprintf('%s%02d', $fname, $c) : $fname);
     }
-    return unless defined $newcontent;
+    return scalar @select unless defined $newcontent;
     $languages = ['XXX'] unless defined $languages;
     my $format = get_format($fname);
     my $have_lang = grep $_->{name} eq 'Language', @$format;
@@ -1204,6 +1258,10 @@ sub frame_select {
     $self->_frame_select(1, @_);
 }
 
+=item frame_list()
+
+Same as frame_select(), but returns the list of found frames.
+
 =item frame_have()
 
 Same as frame_select(), but returns the count of found frames.
@@ -1211,6 +1269,11 @@ Same as frame_select(), but returns the count of found frames.
 =cut
 
 sub frame_have {
+    my $self = shift;
+    scalar $self->_frame_select(0, @_);
+}
+
+sub frames_list {
     my $self = shift;
     $self->_frame_select(0, @_);
 }
@@ -1443,7 +1506,14 @@ sub new {
 	    $self->{tag_data} = '';
 	    $self->{data_size} = 0;
 	} else {
-	    $mp3obj->read(\$self->{tag_data}, $self->{tagsize} + $self->{footer_size});
+	    # sanity check:
+	    my $s = $mp3obj->size;
+	    my $s1 = $self->{tagsize} + $self->{footer_size};
+	    if (defined $s and $s - 10 < $s1) {
+	      warn "Ridiculously large tag size: $s1; file size $s";
+	      return;
+	    }
+	    $mp3obj->read(\$self->{tag_data}, $s1);
 	    $self->{data_size} = $self->{tagsize};
 	    # un-unsynchronize comes in all versions first
 	    if ($self->{flags}->{unsync}) {
@@ -1637,6 +1707,7 @@ sub extract_data {
 		# work with data
 		if ($rule->{name} eq "_encoding") {
 			$encoding=unpack ("C", $found);
+			$result->{encoding} = $encoding;
 		} else {
 			if (exists $rule->{encoded}) {
 			  if ( $encoding > 3 ) {
@@ -1647,16 +1718,24 @@ sub extract_data {
 			    warn "UTF encoding types disabled via MP3TAG_DECODE_UNICODE): found in $rule->{name}\n";
 			    next;
 			  } elsif ($encoding) {
+			    # 0 = latin1 (effectively: unknown)
+			    # 1 = UTF-16 with BOM
+			    # 2 = UTF-16be, no BOM
+			    # 3 = UTF-8
 			    require Encode;
 			    if ($decode_utf8) {
-			      $found = Encode::decode(($encoding > 2 
-						 ? 'UTF-8' :'UTF-16'), $found);
+			      $found = Encode::decode($enc_types[$encoding],
+						      $found);
 			    } elsif ($encoding < 3) {
 			      # Reencode in UTF-8
-			      $found = Encode::decode(($encoding > 2 
-						 ? 'UTF-8' :'UTF-16'), $found);
+			      $found = Encode::decode($enc_types[$encoding],
+						      $found);
 			      $found = Encode::encode('UTF-8', $found);
 			    }
+			  } elsif (defined $default_encoding_read) {
+			    require Encode;
+			    $found = Encode::decode( $default_encoding_read,
+						     $found );
 			  }
 			}
 
@@ -2069,7 +2148,7 @@ BEGIN {
 		   MCDI => [$data],
 		   #MLLT  => [],
 		   OWNE => [$encoding, {len=>0, name=>"Price payed"},
-			    {len=>0, name=>"Date of purchase"}, $text],
+			    {len=>0, name=>"Date of purchase"}, $text_enc],
 		   PCNT => [{mlen=>4, name=>"Text", isnum=>1}],
 		   PIC  => [{v3name => "APIC"}, $encoding, {len=>3, name=>"Image Format", func=>\&PIC},
 			    {len=>1, name=>"Picture Type", func=>\&APIC}, $description, $data], #v2.2
@@ -2100,10 +2179,10 @@ BEGIN {
 		   TIPL => [{v3name => "IPLS"}, $encoding, $text_enc],
 		   TMCL => [{v3name => "IPLS"}, $encoding, $text_enc],
 		   TMED => [$encoding, {%$text_enc, func=>\&TMED}],
-		   TXXX => [$encoding, $description, $text],
+		   TXXX => [$encoding, $description, $text_enc],
 		   UFID => [{%$description, name=>"Text"}, $data],
-		   USER => [$encoding, $language, $text],
-		   USLT => [$encoding, $language, $description, $text],
+		   USER => [$encoding, $language, $text_enc],
+		   USLT => [$encoding, $language, $description, $text_enc],
 		   W    => [$url],
 		   WXXX => [$encoding, $description, $url],
 	      );

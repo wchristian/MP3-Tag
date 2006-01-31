@@ -17,7 +17,10 @@ data_pod.PL
 examples/README.txt
 examples/audio_rename.pl
 examples/mod/Music_Translate_Fields.pm
+examples/mod/Music_Translate_Fields.lst
+examples/mod/Music_Translate_Fields-rus.lst
 examples/mod/transliterate_win1251.pm
+examples/empty.mp3
 examples/extractID3v2.pl
 examples/mp3info.pl
 examples/mp3info2

@@ -2,6 +2,7 @@ package Music_Translate_Fields;
 use strict;
 
 my %tr;
+my %short;
 
 sub translate_tr ($) {
   my $a = shift;
@@ -13,15 +14,59 @@ sub translate_tr ($) {
   return $a;
 }
 
+# Returns $name, $year (second part optional)
+sub strip_year ($) {		# Keep a range of dates, strip single dates
+  my ($a) = (shift);
+  my @rest;
+  return $a unless		# RANGE DATES+ (keep RANGE) or DATES+
+    $a =~ s/(\(\d{4}(?=[-\d,]*-(?:-|\d{4}))[-\d]+\))((?:\s+\([-\d,]+\))+)$/$1/
+      or $a =~ s/((?:\s+\([-\d,]+\))+)$//;
+  @rest = $+;
+  $rest[0] =~ s/^\s+//;
+  return $a, @rest;
+}
+
 sub translate_artist ($$) {
   my ($self, $a) = (shift, shift);
   my $ini_a = $a;
   $a = $a->[0] if ref $a;		# [value, handler]
+  $a =~ s/\s+$//;
+  ($a, my @date) = strip_year($a);
   my $tr_a = translate_tr $a;
   if (not $tr_a and $a =~ /(.*?)\s*,\s*(.*)/s) {	# Schumann, Robert
     $tr_a = translate_tr "$2 $1";
   }
   $a = $tr_a or return $ini_a;
+  $a = join ' ', $a, @date;
+  return ref $ini_a ? [$a, $ini_a->[1]] : $a;
+}
+
+*translate_person = \&translate_artist;
+
+sub short_person ($$) {
+  my ($self, $a) = (shift, shift);
+  my $ini_a = $a;
+  $a = translate_person($self, $a); # Normalize
+  $a = $a->[0] if ref $a;		# [value, handler]
+  $a =~ s/\s+$//;
+  ($a, my @date) = strip_year($a);
+  if (exists $short{$a}) {
+    $a = $short{$a};
+  } else {
+    # Drop years of life
+    $a =~ s/(?:\s+\([-\d,]{4,}\))*$//;
+    # Separate initials by spaces unless in a group of initials
+    $a =~ s/\b(\w\.)(?!$|[-\s]|\w\.)/$1 /g;
+    my @a = split /\s+/, $a;
+    # Skip if there are non upcased parts (e.g., "-") or '()'
+    unless (grep lc eq $_, @a or @a <= 1 or $a =~ /\(/) {
+      my $i = substr($a[0], 0, 1);
+      $a[0] =  "$i." if $a[0] =~ /^\w\w/ and lc($i) ne $i;
+      @a = @a[0,-1];
+    }
+    $a = join ' ', @a;
+  }
+  $a = join ' ', $a, @date;
   return ref $ini_a ? [$a, $ini_a->[1]] : $a;
 }
 
@@ -39,21 +84,42 @@ sub translate_name ($$) {
 *translate_album = \&translate_name;
 *translate_title = \&translate_name;
 
-my %aliases = (	Rachmaninov	=>	[qw(Rachmaninoff Rahmaninov)],
-		Tchaikovskiy 	=>	'Chaikovskiy',
-		'Mendelssohn-Bartholdy'	=> 'Mendelssohn',
-		Shostakovich	=>	['SCHOSTAKOVICH', 'Schostakowitsch',
-					 'Shostakovitch'],
-		Schnittke	=>	'Shnitke',
-		Prokofiev	=>	'Prokofev',
-		Stravinsky	=>	'Stravinskiy',
-		Scriabin	=>	'Skryabin',
-		Liszt		=>	'List',
-	      );
+my %aliases;
 
-for (<DATA>) {
+my $glob = $INC{'Music_Translate_Fields.pm'};
+warn("panic: can't find myself"), return 0 unless -r $glob;
+$glob =~ s/\.pm$/*.lst/i
+  or warn("panic: can't translate `$glob' to .txt"), return 0;
+my @lists = <${glob}>;
+warn("panic: can't find name lists in `$glob'"), return 0 unless @lists;
+
+for my $f (@lists) {
+ open F, "< $f" or warn("Can't open `$f' for read: $!"), next;
+ my @in = <F>;
+ close F or warn("Can't close `$f' for read: $!"), next;
+ if ($in[0] and $in[0] =~ /^ \s* \# \s* charset \s* = \s* ("?) (\S+) \1 \s* $/ix) {
+   my $charset = $2;
+   require Encode;
+   shift @in;
+   $_ = Encode::decode($charset, $_) for @in;
+ }
+ for (@in) {
   next if /^\s*$/;
   s/^\s+//, s/\s+$//, s/\s+/ /g;
+  if (/^ \# \s* (alias|fix) \s+ (.*?) \s* => \s* (.*)/x) {
+    if ($1 eq 'alias') {
+      $aliases{$2} = [split /\s*,\s*/, $3];
+    } elsif ($1 eq 'fix') {
+      $tr{lc $2}	 = $tr{lc $3};
+    }
+    next;
+  }
+  if (/^ \# \s* fix_firstname \s+ (.*\s(\S+))$/x) {
+    $tr{lc $1} = $tr{lc $2};
+    next;
+  }
+  next if /^##/;
+  warn("Do not understand directive: `$_'"), next if /^#/;
   #warn "Doing `$_'";
   my ($pre, $post) = /^(.*?)\s*(\(.*\))?$/;
   my @f = split ' ', $pre or warn("`$pre' won't split"), die;
@@ -77,173 +143,9 @@ for (<DATA>) {
       $tr{"\L@ini $last"} ||= $_;	# All initials
     }
   }
-}
-
-for ('Frederic Chopin', 'Fryderyk Chopin', 'Joseph Haydn', 'J Haydn',
-     'Sergei Prokofiev', 'Serge Prokofiev', 'Antonin Dvorák', 'Peter Tchaikovsky',
-     'Sergei Rahmaninov', 'Piotyr Ilyich Tchaikovsky',
-     'Aleksandr Skryabin', 'Aleksandr Mosolov',
-     'DIMITRI SCHOSTAKOVICH', 'Dmitri Schostakowitsch',
-     'Dmitri Shostakovich', 'Dmitry Shostakovich',
-     'Nicolas Rimsky-Korsakov') {
-  my ($last) = (/(\w+)$/) or warn, die;
-  $tr{lc $_} = $tr{lc $last};
+ }
 }
 
 #$tr{lc 'Tchaikovsky, Piotyr Ilyich'} = $tr{lc 'Tchaikovsky'};
 
-# Old misspellings
-$tr{lc 'Petr Ilyich Chaikovskiy (1840-1893)'} = $tr{lc 'Tchaikovsky'};
-$tr{lc 'Franz Josef Haydn (1732-1809)'} = $tr{lc 'Haydn'};
-$tr{lc 'Félix Mendelssohn (1809-1847)'} = $tr{lc 'Mendelssohn-Bartholdy'};
-$tr{lc 'Sergei Rachmaninov (1873-1943)'} = $tr{lc 'Rachmaninov'};
-$tr{lc 'Wolfgang Amadei Mozart (1756-1791)'} = $tr{lc 'Mozart'};
-$tr{lc 'Eduard Grieg (1843-1907)'} = $tr{lc 'Grieg'};
-$tr{lc 'Antonin Dvorák (1841-1904)'} = $tr{lc 'Dvorák'};
-$tr{lc 'Antonin Dvorak (1841-1904)'} = $tr{lc 'Dvorák'};
-$tr{lc 'Nicolas Rimsky-Korsakov (1844-1908)'} = $tr{lc 'Rimsky-Korsakov'};
-
 1;
-__DATA__
-
-Ludwig van Beethoven (1770-1827)
-Alfred Schnittke (1934-1998)
-Franz Schubert (1797-1828)
-Frédéric Chopin (1810-1849)
-Petr Ilyich Tchaikovsky (1840-1893)
-Robert Schumann (1810-1856)
-Sergey Rachmaninov (1873-1943)
-Alfredo Catalani (1854-1893)
-Amicare Ponchielli (1834-1886)
-Gaetano Donizetti (1797-1848)
-George Frideric Händel (1685-1759)
-Gioacchino Rossini (1792-1868)
-Giovanni Battista Pergolesi (1710-1736)
-Giuseppe Verdi (1813-1901)
-Johann Sebastian Bach (1685-1750)
-Johann Christian Bach (1735-1782)
-Ludwig van Beethoven (1770-1827)
-Luigi Cherubini (1760-1842)
-Pietro Mascagni (1863-1945)
-Riccardo Zandonai (1883-1944)
-Richard Wagner (1813-1883)
-Ruggiero Leoncavallo (1858-1919)
-Umberto Giordano (1867-1948)
-Wolfgang Amadeus Mozart (1756-1791)
-Edvard Grieg (1843-1907)
-Johannes Brahms (1833-1897)
-Dmitriy Shostakovich (1906-1975)
-Franz Joseph Haydn (1732-1809)
-Antonio Vivaldi (1678-1741)
-Claude Debussy (1862-1918)
-Antonín Dvorák (1841-1904)
-Antonin Dvorák (1841-1904)
-Antonin Dvorak (1841-1904)
-Sergey Prokofiev (1891-1953)
-Alfred Schnittke (1934-1998)
-Alexander Glazunov (1865-1936)
-George Phillipe Telemann (1681-1767)
-Jiri Antonin Benda (1722-1795)
-Mario Castelnuovo-Tedesco (1895-1968)
-Heitor Villa-Lobos (1887-1959)
-Hector Berlioz (1803-1869)
-Modest Mussorgsky (1839-1881)
-George Gershwin (1898-1937)
-Carl Orff (1895-1982)
-Maurice Ravel (1875-1937)
-Isao Matsushita (1951-)
-Dietrich Erdmann (1917-)
-Paul Dessau (1894-1979)
-Erwin Shuloff (1894-1942)
-Félix Mendelssohn-Bartholdy (1809-1847)
-Dmitry Stepanovich Bortnyansky (1751-1825)
-Kurt Weill (1900-1950)
-Jean Sibelius (1865-1957)
-Franz Liszt (1811-1886)
-Domenico Scarlatti (1685-1757)
-Alessandro Scarlatti (1660-1725)
-Muzio Clementi (1752-1832)
-Anatoly Lyadov (1855-1914)
-Arnold Schoenberg (1874-1951)
-Georges Bizet (1838-1875)
-Alexander Borodin (1833-1887)
-Alexander Glazunov (1865-1936)
-Gabriel Fauré (1845-1924)
-Béla Bartók (1881-1945)
-Camille Saint-Saens (1835-1921)
-Benjamin Godard (1849-1895)
-Ernest Chausson (1855-1899)
-Igor Stravinsky (1882-1971)
-Luigi Boccherini (1743-1805)
-Richard Strauss (1864-1949)
-Paul Hindemith (1895-1963)
-Hugo Wolf (1860-1903)
-Carl Loewe (1796-1869)
-Christoph Willibald von Gluck (1714-1787)
-Henry Purcell (1659-1695)
-Gustav Mahler (1860-1911)
-Michael Haydn (1737-1806)
-Marin Marais (1656-1728)
-Tomaso Albinoni (1671-1751)
-Johann Pachelbel (1653-1706)
-Jacques Offenbach (1819-1880)
-Bedrich Smetana (1824-1884)
-Frederick Delius (1862-1934)
-Emmanuel Chabrier (1841-1894)
-Carl Maria von Weber (1786-1826)
-Johann I Strauss (1804-1849)
-Johann II Strauss (1825-1899)
-Cesar Franck (1822-1890)
-Alexander Scriabin (1872-1915)
-Anton Webern (1883-1945)
-Edward Elgar (1857-1934)
-Mario Castelnuovo-Tedesco (1895-1968)
-Nicolai Medtner (1880-1951)
-Manuel de Falla (1876-1946)
-Joaquin Nin (1879-1949)
-Darius Milhaud (1892-1974)
-Anton Arensky (1861-1906)
-Nicolay Andreevich Rimsky-Korsakov (1844-1908)
-Erich Wolfgang Korngold (1897-1957)
-Pablo de Sarasate (1844-1908)
-Alexandre Tansman (1897-1986)
-Max Bruch (1838-1920)
-Henri Vieuxtemps (1820-1881)
-Ernst von Dohnanyi (1877-1960)
-Arthur Benjamin (1893-1960)
-Reinhold Gliere (1875-1956)
-Henryk Wieniawski (1835-1880)
-Giovanni Sgambati (1841-1914)
-William Walton (1902-1983)
-Louis Gruenberg (1884-1964)
-
-Alexander Mosolov (1900-1973)
-Andrey Osypovich Sychra (1773-1850)
-Ignatz von Held
-Vasily Sergeevich Alferiev
-Vladimir Ivanovich Morkov (1801-1864)
-Mikhail Timofeevich Vysotsky (1791-1837)
-Nikolai Ivanovich Alexandrov (1818-1885/1886)
-
-Lina Bruna Rasa (1907-1984)
-Enrico Caruso (1873-1921)
-Sviatoslav Richter (1915-1997)
-Glenn Gould (1932-1982)
-Edit Piaf (1915-1963)
-Oleg Kagan (1946-1990)
-David Oistrach (1908-1974)
-Vladimir Horowitz (1903-1989)
-Vladimir Sofronitsky (1901-1961)
-Emil Gilels (1916-1985)
-Pablo Casals (1876-1973)
-Artur Rubinstein (1887-1982)
-Jacqueline du Pré (1945-1987)
-Yehudi Menuhin (1916-1999)
-Kathleen Ferrier (1912-1953)
-Thomas Beecham (1879-1961)
-Gregor Piatigorsky (1903-1976)
-Yascha Heifetz (1901-1987)
-Herbert von Karajan (1908-1989)
-
-Ivan Krylov (1769-1844)
-Samuil Marshak (1887-1964)

@@ -10,18 +10,31 @@ my %opt = (2 => '%a', n => 1, a => 2, t => 1);
 # Level=2 header; Level=1 header (default - dir),
 # use duration, year, whole dates, replace @ by %, basename of output files,
 # ignore 'author' on level > this in directory tree
-# use 'album' for titles with depth above this...
-getopts('2:1:TyYn@B:a:t:', \%opt);
+# use 'album' for titles with depth above this..., encodings
+getopts('2:1:TyYn@B:a:t:e:', \%opt);
 if ($opt{'@'}) {
   $opt{$_} =~ s/\@/\%/g for keys %opt;
+}
+my %enc;
+if ($opt{e}) {	# Comma-separated, each 'encoding' or '[d][h][o]:encoding'
+  for my $e (split /,/, $opt{e}) {
+    # o=output, d=dirname, h=.hintfiles
+    $enc{o} = $enc{d} = $enc{h} = $e, next unless $e =~ /:/;
+    my($what, $enc) = split /:/, $e, 2;
+    for my $w (split //, $what) {
+      $enc{$w} = $enc;
+    }
+  }
 }
 my $out_envelop_cdcover = \*STDOUT;
 my $out_envelop_text;
 my $out_envelop_12cm;
+my $out_list = \*STDOUT;
 if (defined $opt{B}) {
   $opt{B} =~ s,\\,/,g;
   open LIST, "> $opt{B}_list.tex" or die "open `$opt{B}_list.tex' for write: $!";
   select LIST;
+  $out_list = \*LIST;
   if (-e "$opt{B}_cdcover.tex") {
     warn "Will not overwrite existing file `$opt{B}_cdcover.tex'.\n";
     undef $out_envelop_cdcover;
@@ -44,6 +57,9 @@ if (defined $opt{B}) {
       or die "open `$opt{B}_cdbooklet.tex' for write: $!";
     $out_envelop_12cm = \*_12CM;
   }
+}
+if ($enc{o}) {
+  eval {binmode $out_list, ":encoding($enc{o})"} or warn $@;
 }
 
 # suppose that the directory structure is author/TIT1/TIT2.mp3 or author/TIT2.mp3
@@ -76,6 +92,12 @@ sub preprocess_and_sort_with_aligned_numbers {
       local *F;
       open F, "< $ff" or die "open `$ff' failed: $!";
       my $c = <F>;
+      if ($enc{h}) {
+	eval {
+	  require Encode;
+          $c = Encode::decode($enc{h}, $c);
+	} or warn $@;
+      }
       $c =~ s/^\s+//;
       $c =~ s/\s+$//;
       if ($f eq '.top_heading') {
@@ -91,9 +113,17 @@ sub preprocess_and_sort_with_aligned_numbers {
       ($f eq '.top_heading' ? $performer : $comment) = $c if length $c;
     }
   }
-  $performer = $1, $performer =~ s/_/ /g
-    if not defined $performer and $level[-1] == 0
-      and $File::Find::dir =~ m,.*/(.+), ;
+  if (not defined $performer and $level[-1] == 0
+      and $File::Find::dir =~ m,.*/(.+), ) {
+    $performer = $1;
+    if ($enc{d}) {
+      eval {
+        require Encode;
+        $performer = Encode::decode($enc{h}, $performer);
+      } or warn $@;
+    }
+    $performer =~ s/_/ /g;
+  }
   push @comments, (defined $comment ? $comment: $comments[-1]);
   push @performers, (defined $performer ? $performer: $performers[-1]);
   sort {align_numbers($a) cmp align_numbers($b) or $a cmp $b} @_;
@@ -237,6 +267,26 @@ sub print_mp3 {
   return;
 }
 
+my $oenc = $enc{o} || 'utf8';
+my $common_enc = <<'EOP';
+
+\usepackage[T2A]{fontenc}
+EOP
+
+$common_enc .= <<EOP;
+\\usepackage[$oenc]{inputenc}
+EOP
+
+$common_enc .= <<'EOP';
+%\usepackage[utf8]{inputenc}
+%\usepackage[latin1]{inputenc}
+% cp866 for DosCyrillic, cp1251 for WinCyrillic
+%\usepackage[cp866]{inputenc}
+%\usepackage[cp1251]{inputenc}
+%\usepackage[russian]{babel}
+
+EOP
+
 my $common1 = <<'EOP';
 %\pretolerance=-1%	Always hyphenation: always
 
@@ -312,13 +362,11 @@ print $out_envelop_cdcover <<'EOP' if defined $out_envelop_cdcover;
 \documentclass{cd-cover}
 %\documentclass{cd-cover2}
 %\usepackage{multicol}
+EOP
 
-\usepackage[T2A]{fontenc}
-\usepackage[latin1]{inputenc}
-% cp866 for DosCyrillic, cp1251 for WinCyrillic
-%\usepackage[cp866]{inputenc}
-%\usepackage[cp1251]{inputenc}
-%\usepackage[russian]{babel}
+print $out_envelop_cdcover $common_enc if defined $out_envelop_cdcover;
+
+print $out_envelop_cdcover <<'EOP' if defined $out_envelop_cdcover;
 
 \begin{document}
 
@@ -333,7 +381,10 @@ EOP
 
 print $out_envelop_12cm <<'EOP' if defined $out_envelop_12cm;
 % Postprocess this file with something like
-%   dvips -t landscape -f < This_File.ps | psbook | pstops "2:0(0,6cm)+1(0,-6cm)" > Output.ps
+%   dvips -t landscape -f < This_File.dvi | psbook | pstops "2:0(0,6cm)+1(0,-6cm)" > Output.ps
+% Some (broken) printers require finer tuning of file positions
+% for correct duplex.  E.g., to move the text 1.4mm to the left,
+%   dvips -t landscape -f < This_File.dvi | psbook | pstops "2:0(0,6.14cm)+1(0,-5.86cm)" > Output.ps
 
 \documentclass{article}
 
@@ -344,12 +395,11 @@ print $out_envelop_12cm <<'EOP' if defined $out_envelop_12cm;
 
 \def\COLUMNS{2}
 
-\usepackage[T2A]{fontenc}
-\usepackage[latin1]{inputenc}
-% cp866 for DosCyrillic, cp1251 for WinCyrillic
-%\usepackage[cp866]{inputenc}
-%\usepackage[cp1251]{inputenc}
-%\usepackage[russian]{babel}
+EOP
+
+print $out_envelop_12cm $common_enc if defined $out_envelop_12cm;
+
+print $out_envelop_12cm <<'EOP' if defined $out_envelop_12cm;
 
 % This page style adds a frame about the text area
 \makeatletter
@@ -405,12 +455,11 @@ print $out_envelop_text <<'EOP' if defined $out_envelop_text;
 \usepackage[margin=2cm,nohead,nofoot]{geometry}
 \usepackage{multicol}
 
-\usepackage[T2A]{fontenc}
-\usepackage[latin1]{inputenc}
-% cp866 for DosCyrillic, cp1251 for WinCyrillic
-%\usepackage[cp866]{inputenc}
-%\usepackage[cp1251]{inputenc}
-%\usepackage[russian]{babel}
+EOP
+
+print $out_envelop_text $common_enc if defined $out_envelop_text;
+
+print $out_envelop_text <<'EOP' if defined $out_envelop_text;
 
 \def\COLUMNS{2}
 
@@ -631,11 +680,19 @@ Set to C<-1e100> to always use C<%l>, and to C<1e100> to always use C<%a>.
 Replace all C<@> by C<%> in options.  Very useful with DOSISH shells
 to include C<%>-escapes necessary for L<MP3::Tag>'s interpolate().
 
+=item B<-e ENCODINGS>
+
+Sets encodings for output files, directory names (when uses to generate
+headings), and hint files.  B<ENCODINGS> is a comma-separated list of
+directives; each directive is either an encoding name (to use for all targets),
+or C<TARGET_LETTERS:encoding>.  Target letters are C<o>, C<d>, and C<h>
+correspondingly.  Use 0 instead of an encoding to do byte-oriented read/write.
+
 =back
 
 =head1 Info read from file system
 
-The following files are used to give hints to C<type>
+The following files are used to give hints to F<typeset_audio_dir>:
 
 =over
 

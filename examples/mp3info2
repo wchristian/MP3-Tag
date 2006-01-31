@@ -1,4 +1,3 @@
-extproc perl -Sw
 #!/usr/bin/perl -w
 
 use FindBin;

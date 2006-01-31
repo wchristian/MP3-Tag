@@ -1,3 +1,47 @@
+Release Name: 0.9705
+=======================
+
+New environment variables MP3TAG_DECODE_V1_DEFAULT, MP3TAG_DECODE_DEFAULT,
+MP3TAG_ENCODE_V1_DEFAULT, MP3TAG_ENCODE_DEFAULT (0 or encoding name).
+XXXX Not documented yet; does not cover all aspects (filenames, external
+     files, Inf, CDDB files).
+	v2 ENCODE (to illegal encodings) is not implemented yet.
+
+Default for MP3TAG_DECODE_UTF8 is 1 (used for encoding too).
+
+Encoding argument for v2->add_frame() is (finally!) implemented.
+
+Text field of TXXX, USER, USLT, OWNE were wrongly marked as not encoded.
+
+Setting lang=XXX via frame_select() or id3v2_select_frame() would result
+in lang=xxx.
+
+frame_select() returns the count of found frames if it is used for removal
+of frames.
+
+New parameter value 'hash' for get_frame().
+
+New method frames_list() (variant of frame_select()).
+
+Sanity check for tag size parameter in ID3v2.
+
+Sanity check for wide characters in the prepared raw tag.
+
+New method ->size for ::File.
+
+More examples for update_tags().
+
+New options -d, -e for the script mp3info2; brush up the docs.
+
+Music_Translate_Fields: only the parsing logic remains; the data is
+moved into separate files (encoding supported) Music_Translate_Fields*.lst
+(should live alongside the .pm file).
+
+typeset_audio_dir: new option -e; unify the charset logic; add utf8.
+
+Add example/empty.mp3 (some MP3 applications do not accept "really empty"
+MP3s; this one is "almost empty").
+
 Release Name: 0.9704
 =======================
 

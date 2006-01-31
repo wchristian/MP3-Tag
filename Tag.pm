@@ -59,7 +59,7 @@ use vars qw/$VERSION %config/;
 	    update_length => [1],
 	  );
 
-$VERSION="0.9704";
+$VERSION="0.9705";
 
 =pod
 
@@ -1055,6 +1055,7 @@ my %trans = qw(	t	title
 #	%e      Emphasis (string)
 #	%E      CRC Error protection (string)
 #	%O      Original material flag (string)
+#	%G      Musical genre (integer)
 
 sub interpolate {
     my ($self, $pattern) = @_;
@@ -1609,6 +1610,10 @@ sub channel_mode	{ $channel_modes[shift->channel_mode_int] }
 
   $mp3 = MP3::Tag->new($filename);
   $mp3->update_tags();			# Fetches the info, and updates tags
+
+  $mp3->update_tags({});		# Updates tags if needed/changed
+
+  $mp3->update_tags({title => 'This is not a song'});	# Updates tags
 
 This method updates ID3v1 and ID3v2 tags (the latter only if in-memory copy
 contains any data, or $data does not fit ID3v1 restrictions, or $force2 argument is given)
