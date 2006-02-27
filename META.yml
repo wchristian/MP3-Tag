@@ -1,7 +1,7 @@
 # http://module-build.sourceforge.net/META-spec.html
 #XXXXXXX This is a prototype!!!  It will change in the future!!! XXXXX#
 name:         MP3-Tag
-version:      0.9705
+version:      0.9706
 version_from: Tag.pm
 installdirs:  site
 requires:

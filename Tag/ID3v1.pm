@@ -9,18 +9,11 @@ package MP3::Tag::ID3v1;
 use strict;
 use vars qw /@mp3_genres @winamp_genres $AUTOLOAD %ok_length $VERSION @ISA/;
 
-$VERSION="0.9705";
+$VERSION="0.9706";
 @ISA = 'MP3::Tag::__hasparent';
 
 # allowed fields in ID3v1.1 and max length of this fields (except for track and genre which are coded later)
 %ok_length = (title => 30, artist => 30, album => 30, comment => 28, track => 3, genre => 30, year=>4, genreID=>1); 
-
-my $default_encoding_read   = $ENV{MP3TAG_DECODE_V1_DEFAULT};
-my $default_encoding_write  = $ENV{MP3TAG_ENCODE_V1_DEFAULT};
-$default_encoding_read   = $ENV{MP3TAG_DECODE_DEFAULT} unless defined $default_encoding_read;
-$default_encoding_write  = $ENV{MP3TAG_ENCODE_DEFAULT} unless defined $default_encoding_write;
-$default_encoding_write = $default_encoding_read
-    unless defined $default_encoding_write;
 
 =pod
 
@@ -223,17 +216,17 @@ Writes the ID3v1 tag to the file.
 sub as_bin {
     my $self = shift;
     local $self->{track}=0 unless $self->{track} =~ /^\d+$/;
-    my (%f, $f);
+    my (%f, $f, $e);
     for $f (qw(title artist album comment) ) {
 	$f{$f} = $self->{$f};
     }
 
-    if ($default_encoding_write) {
+    if ($e = $self->get_config('encode_encoding_v1') and $e->[0]) {
         my $field;
         require Encode;
 
         for $field (qw(title artist album comment)) {
-          $f{$field} = Encode::encode($default_encoding_write, $f{$field});
+          $f{$field} = Encode::encode($e->[0], $f{$field});
         }
     }
 
@@ -277,9 +270,15 @@ sub write_tag {
 
   $id3v1->remove_tag();
 
-  [old name: removeTag() . The old name is still available, but you should use the new name]
+Removes the ID3v1 tag from the file.  Returns negative on failure,
+FALSE if no tag was found.
 
-Removes the ID3v1 tag from the file.
+(Caveat: only I<one tag> is removed; some - broken - files may have
+many chain-loaded one after another; you may need to call remove_tag()
+in a loop to handle such beasts.)
+
+[old name: removeTag() . The old name is still available, but you
+should use the new name]
 
 =cut
 
@@ -403,7 +402,7 @@ sub new_with_parent {
 # actually read the tag data
 sub read_tag {
     my ($self, $buffer) = @_;
-    my $id3v1;
+    my ($id3v1, $e);
 
     if ($self->{new}) {
 	($self->{title}, $self->{artist}, $self->{album}, $self->{year}, 
@@ -425,12 +424,12 @@ sub read_tag {
 	};
 	$self->{track} = '' unless $self->{track};
 	$self->{genre} = id2genre($self->{genreID});
-	if ($default_encoding_read) {
+	if ($e = $self->get_config('decode_encoding_v1') and $e->[0]) {
 	    my $field;
 	    require Encode;
 
 	    for $field (qw(title artist album comment)) {
-	      $self->{$field} = Encode::decode($default_encoding_read, $self->{$field});
+	      $self->{$field} = Encode::decode($e->[0], $self->{$field});
 	    }
 	}
     }

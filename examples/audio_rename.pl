@@ -1,7 +1,7 @@
 #!/usr/bin/perl -w
 
 # Will rename .inf file too.
-$VERSION = 0.02;
+$VERSION = 0.03;
 
 use MP3::Tag;
 use Getopt::Std 'getopts';
@@ -63,19 +63,36 @@ sub convert_to_filename ($) {
 }
 
 my $translator;
+sub setup_translator () {
+  return if $translator;
+  require FindBin;
+  push @INC, $FindBin::Bin;
+  require transliterate_win1251;
+  $translator = transliterate_win1251::make_translator(
+       (transliterate_win1251::prepare_translation(
+              transliterate_win1251::cyr_table(),
+              transliterate_win1251::lat_table()))[0] );
+}
+
+sub cyr_unicode_to_volapuk ($) {
+  my $in = shift;
+  $in =~ s/([^\x00-\xFF]+)/
+	   require Encode;
+	   {
+             setup_translator unless $translator;
+	     local $_ = Encode::encode('cp1251', $1);
+	     $translator->();
+	     $_;
+	   }
+	  /eg;
+  $in;
+}
 
 sub win1251_to_volapuk ($) {
-  unless ($translator) {
-    require FindBin;
-    push @INC, $FindBin::Bin;
-    require transliterate_win1251;
-    $translator = transliterate_win1251::make_translator(
-	 (transliterate_win1251::prepare_translation(
-		transliterate_win1251::cyr_table(),
-		transliterate_win1251::lat_table()))[0] );
-  }
-  local $_ = shift;
-  my $in = $_;
+  my $in = shift;
+  return cyr_unicode_to_volapuk $in if $in =~ /[^\x00-\xFF]/;
+  setup_translator unless $translator;
+  local $_ = $in;
   # Detect broken stuff where cyrillic aR is written as latin p
   my $c = (tr/a-zA-Z//);
   my $c1 = (tr/p//);
@@ -83,7 +100,7 @@ sub win1251_to_volapuk ($) {
   $translator->();
 
   my $c2 = (tr/abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ//);
-  # Assume p=aR if there is a lot of cyrillic stuff
+  # Assume p=cyr(r) if there is a lot of cyrillic stuff
   # and either p is the only Latin, or p is always surrounded by cyrillic stuff
   # at least on one side: /((?<=[^\s -~])|(?=.[^\s -~]))p/: funny stuff on one side
   tr/p/r/ if $c1 and $c2 > 2*$c1

@@ -8,6 +8,7 @@
 # alias Stravinsky	=>	Stravinskiy
 # alias Scriabin	=>	Skryabin
 # alias Liszt		=>	List
+# alias Dvorák		=>	Dvorak
 
 Ludwig van Beethoven (1770-1827)
 Alfred Schnittke (1934-1998)
@@ -23,9 +24,11 @@ George Frideric Händel (1685-1759)
 Gioacchino Rossini (1792-1868)
 Giovanni Battista Pergolesi (1710-1736)
 Giuseppe Verdi (1813-1901)
+
+## The first one is prefered for expansion of e.g., BACH
 Johann Sebastian Bach (1685-1750)
 Johann Christian Bach (1735-1782)
-Ludwig van Beethoven (1770-1827)
+
 Luigi Cherubini (1760-1842)
 Pietro Mascagni (1863-1945)
 Riccardo Zandonai (1883-1944)
@@ -40,8 +43,8 @@ Franz Joseph Haydn (1732-1809)
 Antonio Vivaldi (1678-1741)
 Claude Debussy (1862-1918)
 Antonín Dvorák (1841-1904)
-Antonin Dvorák (1841-1904)
-Antonin Dvorak (1841-1904)
+## Antonin Dvorák (1841-1904)
+## Antonin Dvorak (1841-1904)
 Sergey Prokofiev (1891-1953)
 Alfred Schnittke (1934-1998)
 Alexander Glazunov (1865-1936)
@@ -158,6 +161,7 @@ Herbert von Karajan (1908-1989)
 # fix_firstname Sergei Prokofiev
 # fix_firstname Serge Prokofiev
 # fix_firstname Antonin Dvorák
+# fix_firstname Antonin Dvorak
 # fix_firstname Peter Tchaikovsky
 # fix_firstname Sergei Rahmaninov
 # fix_firstname Piotyr Ilyich Tchaikovsky
@@ -179,3 +183,10 @@ Herbert von Karajan (1908-1989)
 # fix Antonin Dvorák (1841-1904)	   => Dvorák
 # fix Antonin Dvorak (1841-1904)	   => Dvorák
 # fix Nicolas Rimsky-Korsakov (1844-1908)  => Rimsky-Korsakov
+
+### Non-automatic short names; use `shortname' if the expansion can be deduced
+# shortname_for Johann II Strauss (1825-1899) => J. II Strauss
+
+# shortname F. Mendelssohn
+# shortname J.C. Bach
+# shortname J.S. Bach

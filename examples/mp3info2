@@ -3,15 +3,39 @@
 use FindBin;
 use lib "$FindBin::Bin";
 
-use MP3::Tag;
+use MP3::Tag 0.9706;
 use Getopt::Std 'getopts';
 use strict;
 
+my $VERSION = '1.00';
+
 BEGIN { eval 'require Music_Translate_Fields' }
 
-my %opt = (r => '(?i:\.mp3$)');
-getopts('c:a:t:l:n:g:y:uDp:C:P:E:G@Rr:I2', \%opt);
+my %opt = (r => '(?i:\.mp3$)', E => 'p/i:Fp');
+my @oARGV = @ARGV;
+my $opts = 'c:a:t:l:n:g:y:uDp:C:P:E:G@Rr:I2e:d:F:';
+getopts($opts, \%opt);
 exec 'perldoc', '-F', $0 unless @ARGV;
+
+# if ($opt{e} and exists $opt{p} ? 0 == length $opt{p} : 1) {
+if ($opt{e}) {
+  my $skip;
+  if ($opt{e} =~ /^[123]$/) {
+    require Encode;
+    my $locale = $ENV{LC_CTYPE} || $ENV{LC_ALL} || $ENV{LANG};
+    if ($^O eq 'os2' and not eval {Encode::resolve_alias($locale)} ) {
+      require OS2::Process;
+      $locale = 'cp' . OS2::Process::out_codepage();
+    }
+    if ($opt{e} >= 2) {		# Reinterpret ARGs
+      $skip = ($opt{e} == 2);
+      @ARGV = map Encode::decode($locale, $_), @oARGV;
+      getopts($opts, \%opt);
+    }
+    $opt{e} = $locale;
+  }
+  binmode STDOUT, ":encoding($opt{e})" unless $skip;
+}
 
 # keys of %opt to the MP3::Tag keywords:
 my %trans = (	't' => 'title',
@@ -24,13 +48,49 @@ my %trans = (	't' => 'title',
 
 # Interprete Escape sequences:
 my %r = ( 'n' => "\n", 't' => "\t", '\\' => "\\"  );
-for my $e (split //, (exists $opt{E} ? $opt{E} : 'p')) {
+my ($e_backsl, $e_interp) = ((split m(/i:), $opt{E}, 2), '');
+for my $e ($e_backsl) {
   $opt{$e} =~ s/\\([nt\\])/$r{$1}/g if defined $opt{$e};
 }
+$e_interp = {map +($_, 1), split //, $e_interp};
+
 if ($opt{'@'}) {
   for my $k (keys %opt) {
     $opt{$k} =~ s/\@/%/g;
   }
+}
+
+my $FNAME = qr/(?:		# 1: Whole specifier
+		 \w{4}		# 2: Frame name
+		 (?:
+		   \d\d		# 3: Frame number
+		 |
+		   (?: \( [^)]* \) )? # 4: Language part
+		   (?: \[ (?: \\. | [^]\\] )* \] )? # 5: Description part
+		 )?
+	       )
+	      /x;
+
+
+my @set;
+if ($opt{F}) {
+  my ($lead, @s) = ($opt{F} =~ /^(\W)/);
+  if (defined $lead) {
+    @s = split /\Q$lead$lead$lead/, substr $opt{F}, 1;
+  } else {
+    @s = $opt{F};
+  }
+  for my $s (@s) {
+    $s =~ /^($FNAME)=(.*)/so or die "unrecognized part of -F option: `$s'";
+    push @set, [$1, $2];
+  }
+}
+
+my @del;
+if ($opt{d}) {
+  my $o = $opt{d};
+  push @del, $1 while $o =~ s/^ ( $FNAME ) (,|$) //xo;
+  die "Unrecognized part of -d option: `$o'" if length $o;
 }
 
 # Configure stuff...
@@ -46,11 +106,14 @@ if (defined $opt{C}) {
   }
 }
 
-for my $elt ( qw( title track artist album comment year genre ) ) {
+for my $elt ( qw( title track artist album comment year genre
+		  title_track artist_collection person ) ) {
   no strict 'refs';
   MP3::Tag->config("translate_$elt", \&{"Music_Translate_Fields::translate_$elt"})
     if defined &{"Music_Translate_Fields::translate_$elt"};
 }
+MP3::Tag->config("short_person", \&Music_Translate_Fields::short_person)
+    if defined &Music_Translate_Fields::short_person;
 
 my @parse_data;
 if (defined $opt{P}) {
@@ -80,7 +143,8 @@ EOC
 	my @args;
 	for my $k (keys %trans) {
 	  if (exists $opt{$k}) {
-	    push @args, ['mz', $opt{$k}, "%$k"];
+	    my $i = ($e_interp->{$k} ? 'i' : '');
+	    push @args, ["mz$i", $opt{$k}, "%$k"];
 	    if (exists $data->{$trans{$k}}) {
 		if ( $data->{$trans{$k}}->[0] ne $opt{$k}
 		     or $data->{$trans{$k}}->[1] !~ /^id3/i ) {
@@ -105,12 +169,25 @@ EOC
 		warn "Need to propagate $k from $data->{$k}->[1]\n";
 	    }
 	}
+
 	my $odata = $data;
 	# Now, when we know what should be updated, retry with arguments
-	if (@args or @parse_data) {
+
+	if (@args or @parse_data or @set) {
             $mp3 = MP3::Tag->new($f);
 	    $mp3->config('parse_data', @parse_data, @args);
+	    for my $set (@set) {
+	      my $v = $set->[1];
+	      $v = $mp3->interpolate($v) if $e_interp->{F};
+	      $mp3->select_id3v2_frame_by_descr($set->[0], $v);
+	      $modify++;
+	    }
 	    $data = $mp3->autoinfo('from');
+	}
+	for my $del (@del) {	# delete
+	  my $c = $mp3->select_id3v2_frame_by_descr($del, undef);
+	  warn "No frames found for $del.\n" unless $c;
+	  $modify++ if $c;
 	}
 
 	my $performer = 'Artist:  %a';
@@ -144,7 +221,7 @@ EOC
 	$opt{u} and warn "No update needed\n" unless $modify or $mp3->is_id3v2_modified;
 	return unless ($modify or $opt{u} and $mp3->is_id3v2_modified)
 	    and not $opt{D};		# Dry run
-
+	$mp3->frames_translate if $opt{2};
 	$mp3->update_tags($data, $opt{2});
     } else {
 	print "Not found...\n";
@@ -202,16 +279,20 @@ mp3info2 - get/set MP3 tags; uses L<MP3::Tag> to get default values.
 The program prints a message summarizing tag info (obtained via
 L<MP3::Tag|MP3::Tag> module) for specified files.
 
-It may also update the information in MP3 tags.  This happens in two
+It may also update the information in MP3 tags.  This happens in three
 different cases.
 
 =over
 
 =item *
 
-If the information supplied in command-line options differs
-from the content of the corresponding ID3 tags (or there is no
+If the information supplied in command-line options C<t a l y g c n>
+differs from the content of the corresponding ID3 tags (or there is no
 corresponding ID3 tags).
+
+=item *
+
+If options C<-d> or C<-F> were given.
 
 =item *
 
@@ -220,26 +301,26 @@ C<-u> forces the update of the ID3 tags.
 
 =back
 
-(Both ways are disabled by C<-D> option.)  ID3v2 tag is written if
+(All ways are disabled by C<-D> option.)  ID3v2 tag is written if
 needed.
 
-The option C<-C> sets C<MP3::Tag> configuration data (separated by
-commas; the first comma can be replaced by C<=> sign) as MP3::Tag->config()
-would do.  (To call config() multiple times, separate the parts by arbitrary
-non-alphanumeric character, and repeat this character in the start of C<-C>
-option.)  Note that since C<ParseData> is used to inject the user-specified
-tag fields (such as C<-a "A. U. Thor">), usually it should be kept in the
-C<autoinfo> configuration (and related fields C<author> etc).
-
-The option C<-u> writes (C<u>pdates) the fetched information to the MP3 ID3
-tags.  This option is assumed if tag elements are set via command-line
-options.  (This option is overwritten by C<-D> option.)  If C<-2> option
-is also given, forces write of ID3v2 tag even if the info fits the ID3v1 tag.
+The option C<-u> writes (C<u>pdates) the fetched information to the
+MP3 ID3 tags.  This option is assumed if tag elements are set via
+command-line options.  (This option may be overridden by C<-D>
+option.)  If C<-2> option is also given, forces write of ID3v2 tag
+even if the info fits the ID3v1 tag (in addition, this option enable
+update of personal name fields according to values of C<translate_person>
+and C<person_frames> configuration settings).
 
 The option C<-p> prints a message using the next argument as format
-(by default C<\\>, C<\t>, C<\n> are replaced by backslash, tab and newline;
-governed by the value of C<-E> option); see
-L<MP3::Tag/"interpolate"> for details of the format of sprintf()-like escapes.
+(by default C<\\>, C<\t>, C<\n> are replaced by backslash, tab and
+newline; governed by the value of C<-E> option); see
+L<MP3::Tag/"interpolate"> for details of the format of sprintf()-like
+escapes.  If no option C<-p> is given, message in default format will
+be emitted.  The value of option C<-e> is the encoding used for the
+output; if the value is 1, system-specific encoding is guessed; if the
+value is 2 or 3, then, command line arguments are assumed to be in the
+guessed encoding; for value 2 the encoding of C<-p> output is not set.
 
 With option C<-D> (dry run) no update is performed.
 
@@ -248,38 +329,77 @@ Use options
   t a l y g c n
 
 to overwrite the information (title artist album year genre comment
-track-number) obtained via C<MP3::Tag> heuristics (C<-u> switch is implied
-if any one of these arguments differs from what would be found otherwise; use
-C<-D> switch to disable auto-update).
+track-number) obtained via C<MP3::Tag> heuristics (C<-u> switch is
+implied if any one of these arguments differs from what would be found
+otherwise; use C<-D> switch to disable auto-update).  By default, the
+values of these options are not C<%>-interpolated; this may be changed by
+C<-E> option.
 
-The option C<-P> should contain the parse recipes.  They become the
-configuration item C<parse_data> of C<MP3::Tag>; eventually this information
-is processed by L<MP3::Tag::ParseData|MP3::Tag::ParseData> module.  The option
-is split into
-C<[$flag, $string, @patterns]> on its
-first non-alphanumeric character; if multiple options are needed, one should
-separate
-them by this character repeated 3 times.  This data is processed by
-L<MP3::Tag::ParseData> (if present in the chain of heuristics).
+The option C<-d> should contain the comma-separated list of ID3v2
+frames to delete.  A frame specification is the same as what might be
+given to C<"%{...}"> frame interpolation command, e.g., C<TIT3>,
+C<COMM03>, C<COMM(fra)[short title]>.
 
-If option C<-G> is specified, the file names on the command line are considered
-as glob patterns.  This may be useful if the maximal command-line length is too
-low).  With the option C<-R> arguments can be directories, which are searched
-recursively for F<*.mp3> files to process; use option C<-r> to reset the
-regular expression to look for (the default is C<(?:\.mp3$)>).
+Likewise, the option C<-F> allows setting of arbitrary C<ID3v2>
+frames: if one needs to set one frame, use the directive C<FRAME_spec=VALUE>:
 
-The option C<-E> should contain the letters of the options where
-C<\\, \n, \t> are interpolated (default: C<p>).  If the option C<-@> is given,
-all characters C<@> in the options are replaced by C<%>; this may be convenient
-if the shell treats C<%> specially.
+  -F TIT2=The_new_Title
+
+If one needs to set more than one frame, separate the directives with
+arbitrary non-alphanumeric character repeated 3 times, and add the
+same character at the start:
+
+  -F "~TIT2=The new Title~~~TXXX[TIT2-prev]=The old title"
+
+By default, the values are C<%>-interpolated; this can be changed by
+option C<-E>.
+
+The option C<-P> is a very powerful generalization of what can be done
+by options C<-F>, C<-d>, and C<-t -a -l -y -g -c -n>.  The value should
+contain the parse recipes.  They become the configuration item
+C<parse_data> of C<MP3::Tag>; eventually this information is processed
+by L<MP3::Tag::ParseData|MP3::Tag::ParseData> module.  The option is
+split into C<[$flag, $string, @patterns]> on its first
+non-alphanumeric character; if multiple options are needed, one should
+separate them by this character repeated 3 times.  This data is
+processed by L<MP3::Tag::ParseData> (if the latter present in the
+chain of heuristics; see option C<-C>).
+
+If option C<-G> is specified, the file names on the command line are
+considered as glob patterns.  This may be useful if the maximal
+command-line length is too low.  With the option C<-R> arguments can
+be directories, which are searched recursively for audio (default
+F<*.mp3>) files to process; use option C<-r> to reset the regular
+expression to look for (the default is C<(?:\.mp3$)>).
+
+The option C<-E> controls expansion of escape characters.  It should
+contain the letters of the command-line options where C<\\, \n, \t>
+are interpolated; one can append the letters of C<t a l y g c n F>
+options requiring C<%>-interpolation after the separator C</i:> (for
+C<-F>, only the values are interpolated).  The default value is
+C<p/i:Fp>: only C<-p> is C<\>-interpolated, and only C<-F> and C<-p>
+are subject to C<%>-interpolation.
+
+If the option C<-@> is given, all characters C<@> in the options are
+replaced by C<%>.  This may be convenient if the shell treats C<%>
+specially (e.g., DOSISH shells).
 
 If option C<-I> is given, no guessworking for I<artist> field is performed
 on typeout.
 
+The option C<-C> sets C<MP3::Tag> configuration data (separated by
+commas; the first comma can be replaced by C<=> sign) as C<MP3::Tag->config()>
+would do.  (To call config() multiple times, separate the parts by arbitrary
+non-alphanumeric character, and repeat this character in the start of C<-C>
+option.)  Note that since C<ParseData> is used to inject the user-specified
+tag fields (such as C<-a "A. U. Thor">), usually it should be kept in the
+C<autoinfo> configuration (and related fields C<author> etc).
+
 =head1 Extra translation
 
 If a module C<Music_Translate_Fields> is available, it is loaded.  It may
-defined methods C<translate_artist> etc which would be used by L<MP3::Tag>.
+define methods C<translate_artist> etc which would be used by L<MP3::Tag>
+(via corresponding configuration settings).
 
 =head1 EXAMPLES
 
@@ -293,17 +413,48 @@ A less silly example is forcing a particular way of parsing a file name via
 
   -P "im=%{d0}/%f=%a/%n %t.%e"
 
-This interpolates the string C<"%{d0}/%f"> and parses the result (which is
-the file name with one level of the directory part preserved) using the
-pattern C<"%a/%n %t.%e">; thus the directory name becomes author, the leading
-numeric part - the track number, and the rest of the file name (without
-extension) - the title.  Note that since multiple patterns are allowed,
-one can similarly allow for multiple formats of the names, e.g.
+It is broken into
+
+ flags		string	 	pattern1
+ "im"		"%{d0}/%f"	"%a/%n %t.%e"
+
+The flag letters stand for I<interpolate>, I<must_match>.  This
+interpolates the string C<"%{d0}/%f"> and parses the result (which is
+the file name with one level of the directory part preserved) using
+the given pattern; thus the directory name becomes the artist, the
+leading numeric part - the track number, and the rest of the file name
+(without extension) - the title.  Note that since multiple patterns
+are allowed, one can similarly allow for multiple formats of the
+names, e.g.
 
   -P "im=%{d0}/%f=%a/%n %t.%e=%a/%t (%y).%e"
 
-allows for the file basename to be also of the form "TITLE (YEAR)".  To give
-more examples,
+allows for the file basename to be also of the form "TITLE (YEAR)".  An
+alternative way to obtain the same results is
+
+  -P "im=%{d0}=%a===im=%f=%n %t.%e=%t (%y).%e"
+
+which corresponds to two recipies:
+
+ flags		string	 	pattern1	pattern2
+ "im"		"%{d0}"		"%a"
+ "im"		"%f"		"%n %t.%e"	"%t (%y).%e"
+
+Of course, one could use
+
+ "im"		"%B"		"%n %t"		"%t (%y)"
+
+as a replacement for the second one.
+
+Note that it may be more readable to set I<artist> to C<%{d0}> by an
+explicit asignment, with arguments similar to
+
+  -E "p/i:a" -a "%{d0}"
+
+(this value of C<-E> requests C<%>-interpolation of the option C<-a> in
+addition to the default C<\>-interpolation of C<-p>).
+
+To give more examples,
 
   -P "if=%D/.comment=%c"
 
@@ -347,7 +498,7 @@ The second pattern of this invocation is converted to
 
   ['iR', '%t' => '%t[.,]$']
 
-which essentially matches the title vs the substitution C<s/(.*)[.,]$/$1/s>.
+which essentially applies the substitution C<s/(.*)[.,]$/$1/s> to the title.
 
 Now suppose that in addition to F<Parts>, we have a text file F<Comment> with
 additional info; we want to put this info into the comment field I<after>
@@ -358,9 +509,15 @@ the comment by an empty line:
   -P 'f;Comment;%c;;;fl;Parts;%=n. %t;;;i;%t///%c;%t (%c)///%c;;;iR;%t;%t[.,]$'
 
 This assumes that the title and the comment do not contain C<'///'> as a
-substring.  Explanation: the first pattern of C<-P> reads comment from the
-file C<Comment> into the comment field; the second reads a chunk of C<Parts>
-into the title field.  The third one
+substring.  Explanation: the first pattern of C<-P>,
+
+  ['f', 'Comment' => '%c'],
+
+reads comment from the file C<Comment> into the comment field; the second,
+
+  ['fl', 'Parts'  => '%=n. %t'],
+
+reads a chunk of C<Parts> into the title field.  The third one
 
   ['i', '%t///%c' => '%t (%c)///%c']
 
@@ -372,14 +529,32 @@ hand side.)
 Finally, the fourth pattern is the same as in the preceeding example; it
 removes spurious punctuation at the end of the title.
 
-  mp3info2 -u -P 'i;%c///with piano;///%c' *.mp3
-  mp3info2 -u -P 'iz;%c;with piano%c' *.mp3
+More examples: removing string "with violin" from the start of the
+comment field (removing comment altogether if nothing remains):
+
+  mp3info2 -u -P 'iz;%c;with violin%c' *.mp3
+
+setting the artist field without letting auto-update feature deduce
+other fields from other sources;
+
   mp3info2 -C autoinfo=ParseData -a "A. U. Thor" *.mp3
 
-Here is a typical task setting "advanced" id3v2 frames: composer (C<TCOM>), orchestra (C<TPE2>),
-conductor (C<TPE3>).  We assume a directory tree which contains MP3 files
-tagged with the following conventions: C<artist> is actually a composer;
-C<comment> is of one of two forms:
+setting a comment field unless it it already present:
+
+  mp3info2 -u -P 'i;%c///with piano;///%c' *.mp3
+
+The last example shows how to actually write "programs" in the
+language of the C<-P> option: the example gives a conditional
+assignment.  With user variables (as in C<%{U8}>) for temporaries, and
+a possibility to use regular expressions, one
+could provide arbitrary programmatic logic.  Of course, at some level
+of complexity one should better switch to direct interfacing with
+C<MP3::Tag> Perl module (use the code of this Perl script as an example!).
+
+Here is a typical task setting "advanced" id3v2 frames: composer (C<TCOM>),
+orchestra (C<TPE2>), conductor (C<TPE3>).  We assume a directory tree which
+contains MP3 files tagged with the following conventions: C<artist> is
+actually a composer; C<comment> is of one of two forms:
 
   Performers; Orchestra; Conductor
   Orchestra; Conductor
@@ -405,7 +580,9 @@ C<eng>), call
   mp3info2 -@P "fim;../text/@{d0}/@B.txt;@{COMM(eng)[lyrics]}" -Ru .
 
 inside the directory F<audio>.  (Change C<fim> to C<Ffim> to ignore the
-audio files for which the corresponding text file does not exist.)
+audio files for which the corresponding text file does not exist.)  (Of course,
+to follow the specifications, one should have used the field
+C<"%{USLT(eng)[]}"> instead of C<"%{COMM(eng)[lyrics]}">.
 
 Finish by a very simple example: all that the pattern
 
@@ -413,6 +590,43 @@ Finish by a very simple example: all that the pattern
 
 does is removal of trailing and leading blanks from the title (which is deduced by
 other means).
+
+=head1 INCOMPATIBILITIES with F<mp3info>
+
+This tool is loosely modeled on the program F<mp3info>; it is "mostly"
+backward compatible, and allows a very significant superset of
+functionality.  Known backward incompatibilities are:
+
+  -G -h -r -d
+
+Missing functionality:
+
+  -f -F -i -x
+
+Incompatible C<%>-I<escapes>:
+
+  %e %E 	- absolutely different semantic
+  %v		- has no trailing 0s
+  %q		- has fractional part
+  %r		- is a number, not a word "Variable" for VBR
+  %u		- is one less (in presence of descriptor frame only?)
+
+Missing C<%>-I<escapes>:
+
+  %b %G
+
+Backslash escapes: only C<\\>, C<\n>, C<\t> supported.
+
+=head1 ENVIRONMENT
+
+With C<-e> 1, 2 or 3, this script may consult environment variables
+C<LC_CTYPE, LC_ALL, LANG> to deduce the current encoding.  No other
+environment variables are directly read by this script.
+
+Note however, that L<MP3::Tag> module has a rich set of defaults for
+encoding settings settable by environment variables; see
+L<MP3::Tag/"ENVIRONMENT">.  So these variables will (indirectly)
+affect how this script works.
 
 =head1 AUTHOR
 

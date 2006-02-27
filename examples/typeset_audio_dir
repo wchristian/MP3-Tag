@@ -1,5 +1,7 @@
 #!/usr/bin/perl -w
 
+$VERSION = 0.01;
+
 use strict;
 use MP3::Tag;
 use File::Find;
@@ -11,7 +13,7 @@ my %opt = (2 => '%a', n => 1, a => 2, t => 1);
 # use duration, year, whole dates, replace @ by %, basename of output files,
 # ignore 'author' on level > this in directory tree
 # use 'album' for titles with depth above this..., encodings
-getopts('2:1:TyYn@B:a:t:e:', \%opt);
+getopts('2:1:TyYn@B:a:t:e:c', \%opt);
 if ($opt{'@'}) {
   $opt{$_} =~ s/\@/\%/g for keys %opt;
 }
@@ -28,6 +30,7 @@ if ($opt{e}) {	# Comma-separated, each 'encoding' or '[d][h][o]:encoding'
 }
 my $out_envelop_cdcover = \*STDOUT;
 my $out_envelop_text;
+my $out_envelop_backcover;
 my $out_envelop_12cm;
 my $out_list = \*STDOUT;
 if (defined $opt{B}) {
@@ -42,6 +45,13 @@ if (defined $opt{B}) {
     open CDCOV, "> $opt{B}_cdcover.tex"
       or die "open `$opt{B}_cdcover.tex' for write: $!";
     $out_envelop_cdcover = \*CDCOV;
+  }
+  if (-e "$opt{B}_backcover.tex") {
+    warn "Will not overwrite existing file `$opt{B}_backcover.tex'.\n";
+  } else {
+    open BACKCOV, "> $opt{B}_backcover.tex"
+      or die "open `$opt{B}_backcover.tex' for write: $!";
+    $out_envelop_backcover = \*BACKCOV;
   }
   if (-e "$opt{B}_text.tex") {
     warn "Will not overwrite existing file `$opt{B}_text.tex'.\n";
@@ -144,6 +154,7 @@ sub to_TeX ($) {
   $in =~ s/(\b|(?<=\.\.\.)|(?<=[\x80-\xFF]))"\B|"$/''/g;
   $in =~ s/\B"(\b|(?=[\x80-\xFF]))|^"/``/g;
   $in =~ s/\.{3}/\\dots{}/g;
+  $in =~ s/\s+-\s+/---/g;
   $in =~ s/\bDvorák\b/Dvo\\v rák/g;
   $in;
 }
@@ -248,7 +259,9 @@ sub print_mp3 {
   $this->{author_dir} = join '/', @parts[0..$l_part];
   $this->{dir1} = $parts[1];	# Not used anymore...
 
-  $this->{comment} = $comments[-1];
+  my $c = !$opt{c}
+    && $tag->select_id3v2_frame_by_descr('TXXX[add-to:file-by-person,l,t,n]');
+  $this->{comment} = (defined $c and length $c) ? "($c)" : $comments[-1];
 
   if ($opt{y}) {
     my $year = $tag->year;
@@ -285,14 +298,20 @@ $common_enc .= <<'EOP';
 %\usepackage[cp1251]{inputenc}
 %\usepackage[russian]{babel}
 
+\usepackage{textcomp}		% More Unicode symbols
+
 EOP
 
 my $common1 = <<'EOP';
 %\pretolerance=-1%	Always hyphenation: always
 
 \def\hourmark#1{$\mathsurround0pt{}^{\scriptscriptstyle\circ}$}
-\def\preauthor{\pagebreak[1]\bgroup\centering\bf}
-\def\postauthor{\par\egroup}
+\newdimen\PREauthorSKIP
+\newdimen\POSTauthorSKIP
+\PREauthorSKIP 0pt\relax
+\POSTauthorSKIP 0pt\relax
+\def\preauthor{\pagebreak[1]\addvspace{\PREauthorSKIP}\bgroup\centering\bf}
+\def\postauthor{\par\egroup\addvspace{\POSTauthorSKIP}}
 \def\pretitle{\bgroup}
 \def\posttitle{\par\egroup}
 \def\precomment{ \bgroup\it}
@@ -325,18 +344,21 @@ my $common1 = <<'EOP';
 % in the main text).  This \finalhyphendemerits requires groups in \pretitle
 % \postttile...
 
+\def\addOnRight#1{%
+  \unskip\nobreak\hfil\penalty 80\hskip0.75em\null\nobreak\hfill
+  \sbox 0{#1}\ifdim \wd 0 > \linewidth #1\else    \box 0\fi
+  \finalhyphendemerits=0\relax
+}
+
 % \linewidth differs from \hsize by \left-\rightmargin's.
-\def\preyear#1\postyear{\unskip\nobreak\hfil\penalty 80\hskip0.75em
-  \null\nobreak\hfill
-  \sbox 0{[#1]}\ifdim \wd 0 > \linewidth [#1]\else    \box 0\fi
-  \finalhyphendemerits=0\relax}
+\def\preyear#1\postyear{\addOnRight{[#1]}}
 
 % Make this more negative for denser type
 \parskip=-1.1pt plus 1.1pt\relax
 
 EOP
 
-my $cdcover_on = <<'EOP';
+my $cdcover_on = <<'EOP'; 
 \begin{bookletsheets}
 %\begin{bookletsheetsTwo}
 %\begin{singlesheet}{Title}{Slip text}
@@ -344,10 +366,44 @@ my $cdcover_on = <<'EOP';
 %\begin{multicols}{4}
 EOP
 
-my $common2 = <<'EOP';
+my $backcover_on = <<'EOP';
+%\begin{bookletsheets}
+%\begin{bookletsheetsTwo}
+%\begin{singlesheet}{Title}{Slip text}
+
+%%% Replace by backsheet* to get other direction of spines
+%\begin{backsheet}{% Set up title (possibly multiline)
+\begin{backcover-ml}{%
+{\bf Put your TITLE here}\tiny
+and add some content
+\addOnRight{\bf \today}%
+}
+
+\begin{multicols}{\COLUMNS}
+EOP
+
+my $envelop_12cm_on = <<EOP;
+%\\footnotesize
+%\\begin{center}
+%\\input{$opt{B}_title}
+%\\end{center}
+
+\\vskip 3pt
+\\hrule height1.7pt\\relax
+\\vskip 1.2pt
+\\hrule height0.8pt\\relax
+\\vskip 3pt
+
+EOP
+
+
+
+sub common2 ($) {
+  my $which = shift;
+  (my $common2 = <<'EOP') =~ s/^%(\\\Q$which\E)\b/$1/m or die $which; # Uncomment $which
 % Choose a size which better fits the pages...
 %\small
-\footnotesize
+%\footnotesize
 %\scriptsize
 %\tiny
 
@@ -355,6 +411,8 @@ my $common2 = <<'EOP';
 \parindent=-\leftskip\relax
 
 EOP
+  $common2;
+}
 
 print $out_envelop_cdcover <<'EOP' if defined $out_envelop_cdcover;
 %\documentclass[12pt]{article}
@@ -364,9 +422,7 @@ print $out_envelop_cdcover <<'EOP' if defined $out_envelop_cdcover;
 %\usepackage{multicol}
 EOP
 
-print $out_envelop_cdcover $common_enc if defined $out_envelop_cdcover;
-
-print $out_envelop_cdcover <<'EOP' if defined $out_envelop_cdcover;
+my $cdcover_set = <<'EOP';	# XXXX \small for backcover?
 
 \begin{document}
 
@@ -376,8 +432,58 @@ print $out_envelop_cdcover <<'EOP' if defined $out_envelop_cdcover;
 \CDbookletTopMargin=1.5mm
 \CDsingleMargin=1.5mm
 \CDsingleTopMargin=1.5mm
+\CDbackMargin=1.5mm
+\CDbackTopMargin=1.5mm
 
 EOP
+
+print $out_envelop_cdcover $common_enc, $cdcover_set
+  if defined $out_envelop_cdcover;
+
+print $out_envelop_backcover <<'EOP' if defined $out_envelop_backcover;
+%\documentclass[12pt]{article}
+
+\documentclass{cd-cover}
+\newenvironment{backcover-ml}[1]{% `backsheet' puts multiline spines
+				 % in a wrong place....
+  \backsheet{{% Set up title (possibly multiline)
+    \setlength\unitlength{1mm}%
+    \begin{picture}(0,0)
+      %% There MUST be an easier way to put mid-of-left-edge of a block at pos
+      \put(0.5,2.5){\makebox(0,0)[bl]{%
+	\raisebox{-0.5\height}[0pt][0pt]{%
+	  \begin{minipage}[b]{11.7cm}%
+	    %%% This will create really tight multi-line:
+	    \lineskiplimit=10cm\lineskip=-0.5pt minus 1pt\relax
+  #1%
+	  \end{minipage}%
+	}%
+      }}
+    \end{picture}
+  }}%
+}{\endbacksheet}
+
+\usepackage{multicol}
+
+\def\COLUMNS{3}
+EOP
+
+my $set_columns = <<'EOP';
+\columnsep 9pt
+\columnseprule.4pt
+%\multicolsep 3pt plus 4pt minus 3pt
+% Need to put adjacent horizontal lines, so this is better:
+\multicolsep 0pt
+\newlength\Multicolsep		% Insert manually
+% Dynamically change:
+\def\myMulticolsep{\setlength{\Multicolsep}{0.7ex plus 0.9ex minus 0.7ex}%
+  \addvspace\Multicolsep}
+
+EOP
+
+$cdcover_set =~ s/\\normalsize\b/\\small/;
+print $out_envelop_backcover $set_columns, $common_enc, $cdcover_set
+  if defined $out_envelop_backcover;
 
 print $out_envelop_12cm <<'EOP' if defined $out_envelop_12cm;
 % Postprocess this file with something like
@@ -385,6 +491,9 @@ print $out_envelop_12cm <<'EOP' if defined $out_envelop_12cm;
 % Some (broken) printers require finer tuning of file positions
 % for correct duplex.  E.g., to move the text 1.4mm to the left,
 %   dvips -t landscape -f < This_File.dvi | psbook | pstops "2:0(0,6.14cm)+1(0,-5.86cm)" > Output.ps
+% With some versions (of graphics.cfg?) one needs to invert the offsets:
+%   dvips -t landscape -f < This_File.dvi | psbook | pstops "2:0(0,-6cm)+1(0,6cm)" > Output.ps
+%   dvips -t landscape -f < This_File.dvi | psbook | pstops "2:0(0,-5.86cm)+1(0,6.14cm)" > Output.ps
 
 \documentclass{article}
 
@@ -397,8 +506,7 @@ print $out_envelop_12cm <<'EOP' if defined $out_envelop_12cm;
 
 EOP
 
-print $out_envelop_12cm $common_enc if defined $out_envelop_12cm;
-
+print $out_envelop_12cm $set_columns, $common_enc if defined $out_envelop_12cm;
 print $out_envelop_12cm <<'EOP' if defined $out_envelop_12cm;
 
 % This page style adds a frame about the text area
@@ -432,23 +540,41 @@ print $out_envelop_12cm <<'EOP' if defined $out_envelop_12cm;
      \def\@evenhead{\ps@framed@head\ps@framed@evenhead}}
 \makeatother
 
+EOP
+
+my $set_headers = <<'EOP';
 \begin{document}
 
 \pagestyle{framed}
 
-% These hardcoded 3pt, 4pt values are very questionable...
-\def\SETDIR#1{\bgroup\centering\bf\normalsize#1\par\egroup
-	      \vskip 3pt\hrule\vskip -3pt\vbox to 0pt{}\relax}
-\let\PREDIR\relax
+% \multicolsep + \extraSomething: \small => 1.2pt; \scriptsize => -1.4pt
 
-\def\preDir#1\postDir{\PREDIR\relax\def\PREDIR{\end{multicols}%
-					       \hrule\vskip 4pt\relax}%
-		      \begin{multicols}{\COLUMNS}[\SETDIR{#1}]\relax}
-\columnsep 9pt
-\columnseprule.4pt
-\multicolsep 3pt plus 4pt minus 3pt
+% These hardcoded 3pt, 4pt values are very questionable...
+% Work with footnotesize (ex=4.6pt);
+% with scriptsize (ex=3.2pt) one needs 1.5pt instead of 3pt...
+% The trick below: (1ex-1.5pt)
+% does not work with tiny (ex=2.2pt) by about 1.5pt; but if one corrects,
+% the line touches the header...
+
+% The calculations done by multicol are too complicated to grasp.
+% But they are effectively disabled by \nointerlineskip
+\def\SETDIR#1{\bgroup\centering\bf\dirSIZE#1\par\egroup
+	      \myMulticolsep\hrule
+	      \vbox to 0pt{}\relax\nointerlineskip}
+\def\preDIR{\end{multicols}%
+   \hrule\vskip 4pt\relax}
+\def\preDIR{\end{multicols}%	% XXXX Why 0.5ex is needed???
+   \nointerlineskip\vbox to 0.5ex{}\relax\hrule\myMulticolsep}
+\def\PREDIRi{\let\PREDIR\preDIR}
+\let\PREDIR\PREDIRi			% Do nothing on the first invocation
+
+\def\preDir#1\postDir{\PREDIR\begin{multicols}{\COLUMNS}[\SETDIR{#1}]\relax}
+\def\dirSIZE{\normalsize}
 
 EOP
+
+print $out_envelop_12cm $set_headers if defined $out_envelop_12cm;
+$set_headers =~ s/^(\\pagestyle\{.*})\s*//m or die;
 
 print $out_envelop_text <<'EOP' if defined $out_envelop_text;
 \documentclass[12pt]{article}
@@ -457,34 +583,30 @@ print $out_envelop_text <<'EOP' if defined $out_envelop_text;
 
 EOP
 
-print $out_envelop_text $common_enc if defined $out_envelop_text;
-
+print $out_envelop_text $set_columns, $common_enc if defined $out_envelop_text;
 print $out_envelop_text <<'EOP' if defined $out_envelop_text;
 
 \def\COLUMNS{2}
 
-\begin{document}
-
-% These hardcoded 3pt, 4pt values are very questionable...
-\def\SETDIR#1{\bgroup\centering\bf\normalsize#1\par\egroup
-	      \vskip 3pt\hrule\vskip -3pt\vbox to 0pt{}\relax}
-\let\PREDIR\relax
-
-\def\preDir#1\postDir{\PREDIR\relax\def\PREDIR{\end{multicols}%
-					       \hrule\vskip 4pt\relax}%
-		      \begin{multicols}{\COLUMNS}[\SETDIR{#1}]\relax}
-\columnsep 9pt
-\columnseprule.4pt
-\multicolsep 3pt plus 4pt minus 3pt
-
 EOP
 
-for my $out (grep defined,
-	     $out_envelop_cdcover, $out_envelop_text, $out_envelop_12cm) {
+$set_headers =~ s/^(\\pagestyle\{.*})\b//m;
+print $out_envelop_text $set_headers if defined $out_envelop_text;
+
+for my $o (grep defined $_->[0],
+	   [$out_envelop_backcover, 'tiny'],
+	   [$out_envelop_cdcover, 'scriptsize'],
+	   [$out_envelop_text, 'footnotesize'],
+	   [$out_envelop_12cm, 'scriptsize']) {
+  my $out = $o->[0];
   print $out $common1;
   print $out $cdcover_on
     if defined $out_envelop_cdcover and $out eq $out_envelop_cdcover;
-  print $out $common2;
+  print $out $backcover_on
+    if defined $out_envelop_backcover and $out eq $out_envelop_backcover;
+  print $out $envelop_12cm_on
+    if defined $out_envelop_12cm and $out eq $out_envelop_12cm;
+  print $out common2($o->[1]);
   print $out <<"EOP" if defined $opt{B};	# \include has extra \clearpage
 
 \\input{$opt{B}_list}
@@ -492,6 +614,28 @@ for my $out (grep defined,
 EOP
 }
 
+my $optional_cont = <<'EOP';
+\iffalse
+  \pagebreak[4]				% Mandatory page break
+  \let\PREDIR\PREDIRi			% Reset multicolumn logic
+
+  \def\dirSIZE{\small}
+  \def\COLUMNS{3}
+  \scriptsize
+
+  {
+    \baselineskip 0.8\baselineskip	% Less space before continuation lines
+    \PREauthorSKIP 1.2pt\relax		% Pre- and post- level-2 heading
+    \POSTauthorSKIP 0.6pt\relax
+    % Make this more negative for less skip between non-continuation lines
+    \parskip=-0.7pt plus 1pt\relax
+    \input{another_list}
+    \end{multicols}
+  }
+\fi
+
+\end{document}
+EOP
 
 print $out_envelop_cdcover <<'EOP' if $opt{B} and defined $out_envelop_cdcover;
 %\end{multicols}
@@ -501,19 +645,48 @@ print $out_envelop_cdcover <<'EOP' if $opt{B} and defined $out_envelop_cdcover;
 \end{document}
 EOP
 
-print $out_envelop_text <<'EOP' if defined $out_envelop_text;
+print $out_envelop_backcover <<'EOP' if defined $out_envelop_backcover;
 \end{multicols}
+
+\addvspace{0.5ex}
+\hrule
+%\addvspace{-1.5ex}
+\begin{center}
+{\bf \small \today}
+\end{center}
+
+%\vfill\vfil
+
+\end{backcover-ml}
+%\end{backsheet}
+%\end{bookletsheets}
+%\end{bookletsheetsTwo}
+%\end{singlesheet}
 \end{document}
 EOP
 
-print $out_envelop_12cm <<'EOP' if defined $out_envelop_12cm;
+print $out_envelop_text <<'EOP', $optional_cont if defined $out_envelop_text;
 \end{multicols}
-\end{document}
+
+EOP
+
+print $out_envelop_12cm <<'EOP', $optional_cont if defined $out_envelop_12cm;
+\end{multicols}
+
+\addvspace{0.5ex}
+\hrule height0.8pt\relax
+\vskip 1.2pt
+\hrule height1.7pt\relax
+%\addvspace{-1.5ex}
+\begin{center}
+{\bf \small \today}
+\end{center}
+
 EOP
 
 if ($opt{B}) {			# Otherwise cdcover is STDOUT...
   (close $_ or warn "Error closing wrapper for write: $!"), undef $_
-    for grep defined,
+    for grep defined, $out_envelop_backcover,
       $out_envelop_cdcover, $out_envelop_text, $out_envelop_12cm;
 }
 
@@ -573,7 +746,11 @@ typeset_audio_dir - produce B<TeX> listing of directories with audio files.
   # Use artist as toplevel heading, album as the 2nd level; use track numbers;
   # name is based on title for any depth in directory hierarchy;
   # likewise for generation of 2nd level heading.
-  typeset_audio_dir -@ -1 "@a" -2 "@l" -t 1000 -a 1000 -ynT -B All .
+  typeset_audio_dir -@ -ynT -1 "@a" -2 "@l" -t 1000 -a 1000 -B All .
+
+  # Likewise, but the name is based on the album; ignore comments
+  typeset_audio_dir    -yTn -1 "" -2 ""  -c -t -1e100 -a -1e100 -B All_short .
+
 
 =head1 DESCRIPTION
 
@@ -600,20 +777,22 @@ descriptors of the audio files during scan.
 
 gives basename of the output file.  Without this option the script
 will output to STDOUT.  With this option, script separates the layout
-from content, and produces 4 B<TeX> files:
+from content, and produces 5 B<TeX> files:
 
   basename_text.tex
   basename_cdcover.tex
   basename_cdbooklet.tex
+  basename_backcover.tex
   basename_list.tex
 
 The last file contains the information about audio files encountered.
+The others files contain frameworks to typeset this information.
 
-The first three files are supposed to be human-editable; they will not
+The first four files are supposed to be human-editable; they will not
 be overwritten by a following rerun with the same basename given to
 the script.  By editing these files, one can choose between several
-encodings, multicolumn output, font size, interline spacing, margins,
-page size etc.
+encodings, languages, multicolumn output, font size, interline
+spacing, margins, page size etc.
 
 =item B<-y>
 
@@ -688,6 +867,11 @@ directives; each directive is either an encoding name (to use for all targets),
 or C<TARGET_LETTERS:encoding>.  Target letters are C<o>, C<d>, and C<h>
 correspondingly.  Use 0 instead of an encoding to do byte-oriented read/write.
 
+=item B<-c>
+
+If not given, the frame C<TXXX[add-to:file-by-person,l,t,n]> will be
+inspected, and used as a "comment" for a record.
+
 =back
 
 =head1 Info read from file system
@@ -712,6 +896,30 @@ this directory.
 
 =back
 
+=head1 TYPESETTING
+
+Running this script will only generate necessary TeX files, but will
+not typeset them (they will look much better if you first edit the
+files to suit your needs).  Recall how to typeset TeX documents (here
+we assume PDF target):
+
+  latex document.tex && dvips document.dvi && ps2pdf document
+
+(a lot of temporary files are going to be generated too).  Some of the
+files (e.g., F<..._cdcover.tex>) assume work better with landscape
+orientation; one needs
+
+  latex document.tex && dvips -t landscape document.dvi && ps2pdf document
+
+With F<..._cdbooklet.tex>, for best result, one better should
+rearrange pages for booklet 2up 2-pages-per-side printing:
+
+  latex document.tex
+    && dvips -t landscape -f < document.dvi | psbook | pstops "2:0(0,-6cm)+1(0,6cm)" > document.ps
+    && ps2pdf document
+
+(more details on running dvips is put in the beginning of this TeX file).
+
 =head1 HINTS
 
 Do not forget that if you can't describe a complicated layout by
@@ -725,6 +933,24 @@ You can also redefine C<\preDir * \posDir> to do nothing, and put the
 necessary code to generate the headers into the top-level file.
 
 Modify the formatting macros to suit your needs.
+
+One can combine two (or more) lists (e.g., with the short style, and
+the long style) into one output file; the generated files
+F<..._cdbooklet.tex> and F<..._text.tex> already have a necessary
+template at the end.  For example, with two lists created in
+L<"SYNOPSIS">, F<All_list.tex>, and F<All_short_list.tex>, find
+C<\iffalse> near the end of F<All_short_cdbooklet.tex> and change it
+to C<\iftrue>; then change the name in the directive
+
+    \input{another_list}
+
+to F<All_long_list>
+
+This will make the "short" cdbooklet become a kind of "table of
+contents" for the combined "short+long" cdbooklet.  (Of course, one
+can change the values of macros C<\dirSIZE>, C<\COLUMNS>, size of
+skips and of type [as C<\scriptsize> above] to suit your needs - the
+point is that they should not be the same for the second list.)
 
 =cut
 

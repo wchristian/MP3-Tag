@@ -3,7 +3,7 @@ package MP3::Tag::ParseData;
 use strict;
 use vars qw /$VERSION @ISA/;
 
-$VERSION="0.9703";
+$VERSION="0.9706";
 @ISA = 'MP3::Tag::__hasparent';
 
 =pod
@@ -122,6 +122,8 @@ C<year> can be used to access the results of the parse.
 It is possible to set individual id3v2 frames; use %{TIT1} or
 some such.  Setting to an empty string deletes the frame if config
 parameter C<id3v2_frame_empty_ok> is false (the default value).
+Setting ID3v2 frames uses the same translation rules as
+select_id3v2_frame_by_descr().
 
 =cut
 
@@ -148,11 +150,20 @@ sub parse_one {
     $data = $self->{parent}->interpolate($data) if $flags =~ /i/;
     if ($flags =~ /f/) {
 	local *F;
+	my $e;
 	unless (open F, "< $data") {
 	  return if $flags =~ /F/;
 	  die "Can't open file `$data' for parsing: $!";
 	}
-	binmode F if $flags =~ /B/;
+	if ($flags =~ /B/) {
+	  binmode F;
+	} else {
+	  my $e;
+	  if ($e = $self->get_config('decode_encoding_files') and $e->[0]) {
+	    eval "binmode F, ':encoding($e->[0])'"; # old binmode won't compile...
+	  }
+	}
+
 	local $/;
 	my $d = <F>;
 	close F or die "Can't close file `$data' for parsing: $!";
@@ -187,7 +198,14 @@ sub parse_one {
 		File::Path::mkpath($1);
 	    }
 	    open OUT, "> $file" or die "open(`$file') for write: $!";
-	    binmode OUT if $flags =~ /b/;
+	    if ($flags =~ /b/) {
+	      binmode OUT;
+	    } else {
+	      my $e;
+	      if ($e = $self->get_config('encode_encoding_files') and $e->[0]) {
+		eval "binmode OUT, ':encoding($e->[0])'"; # old binmode won't compile...
+	      }
+	    }
 	    local ($/, $,) = ('', '');
 	    print OUT $data[0];
 	    close OUT or die "close(`$file') for write: $!";
@@ -250,7 +268,7 @@ sub parse {
 	  if ($k eq 'year') {	# Do nothing
 	  } elsif ($k =~ /^U(\d{1,2})$/) {
 	    $self->{parent}->set_user($1, delete $res->{$k})
-	  } elsif ($k =~ /^\w{4}(\d{2,})?$/) {
+	  } elsif (0 and $k =~ /^\w{4}(\d{2,})?$/) {
 	    if (length $res->{$k}
 		or $self->get_config('id3v2_frame_empty_ok')->[0]) {
 	      $self->{parent}->set_id3v2_frame($k, delete $res->{$k})
@@ -258,13 +276,11 @@ sub parse {
 	      delete $res->{$k};
 	      $self->{parent}->set_id3v2_frame($k);	# delete
 	    }
-	  } elsif ($k =~ /^(\w{4})(?:\(([^)]*)\))?(?:\[([^]]*)\])?$/) {
-	    my $langs = defined $2 ? [split /,/, $2, -1] : undef;
-	    my ($fname, $shorts) = ($1, $3);
-	    my $r = $res->{$k};
+	  } elsif ($k =~ /^\w{4}(\d{2,}|(?:\(([^)]*)\))?(?:\[(\\.|[^]\\]*)\])?)$/) {
+	    my $r = delete $res->{$k};
 	    $r = undef unless length $r or $self->get_config('id3v2_frame_empty_ok')->[0];
 	    if (defined $r or $self->{parent}->_get_tag('ID3v2')) {
-	      $self->{parent}->select_id3v2_frame($fname, $shorts, $langs, $r)
+	      $self->{parent}->select_id3v2_frame_by_descr($k, $r);
 	    }
 	  }
 	}

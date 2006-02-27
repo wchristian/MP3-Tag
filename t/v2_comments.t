@@ -7,7 +7,7 @@
 # Change 1..1 below to 1..last_test_to_print .
 # (It may become useful if the test is moved to ./t subdirectory.)
 
-BEGIN { $| = 1; print "1..104\n"; }
+BEGIN { $| = 1; print "1..105\n"; }
 END {print "MP3::Tag not loaded :(\n" unless $loaded;}
 use MP3::Tag;
 $loaded = 1;
@@ -144,6 +144,9 @@ ok($mp3->interpolate('%{COMM}'), "have COMM");
 ok($mp3->interpolate('%{COMM01}'), "have COMM01");
 ok($mp3->interpolate('%{COMM02}'), "have COMM02");
 ok(!$mp3->interpolate('%{COMM03}'), "no COMM03");
+
+ok(($mp3->interpolate('%{COMM[a]&COMM[aa]&COMM[b]&COMM[c]}')) eq 'bar; baz; foo',
+   "parse COMM[a]&COMM[aa]&COMM[b]&COMM[c]");
 
 ok($mp3->update_tags, 'update');
 

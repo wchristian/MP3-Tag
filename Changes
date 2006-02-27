@@ -1,3 +1,62 @@
+Release Name: 0.9706
+=======================
+
+The weaken()ing code was failing since weaken() does not return TRUE.  (Tested
+for no obvious memory leaks.)
+
+Allow for backwacked \[ \] \\ in descriptor of, e.g., COMM[descriptor].
+
+New configuration options:
+		   encode_encoding_v1 decode_encoding_v1 decode_encoding_v2
+		   decode_encoding_filename
+		   decode_encoding_inf decode_encoding_cddb_file
+		   decode_encoding_files encode_encoding_files
+	(en/decode_encoding_files for ParseData; applicable to non-binary i/o).
+Initialized from corresponding environment variables
+
+Document environment variables.
+
+translate_title_collection etc configuration values were not settable
+(neither were they documented...).
+
+New methods of ID3v2: frame_select_by_descr(), frame_have_by_descr(),
+frame_list_by_descr(), frame_select_by_descr_simple().
+
+New methods have_id3v2_frame_by_descr(), select_id3v2_frame_by_descr(),
+frame_translate(), frames_translate(), shorten_person() in MP3::Tag.
+interpolate() significantly simplified; new interpolation %{shP{NAME}}.
+
+New type of interpolation: frame ids connected by &.  Slightly more readable
+documentation of interpolate() and parse_rex().
+
+New configuration settings: person_frames, and translate_person
+(supported only by select_id3v2_frame_by_descr()).
+
+Music_Translate_Fields.pm: much better detection of non-canonical names
+(e.g., year removal), support for person names shortening.  New method
+check_persons() for checking consistency of translation/shortening.
+Piecewise translation for multiple authors in a field (separated by ', ',
+'; ', or ' - ').  Will translate title_collection and other CDDB fields.
+
+Music_Translate_Fields-rus.lst: better list of persons for bard repertoire
+and audiobooks; allow "fixing" wrong years too; handle "translated" and
+many more separators of multi-names; cursory support for cases (genitive);
+support for disabling translation (#keep).
+
+audio_rename.pl: transliterate cyrillic with unicode too.
+
+New options -d, -e, -F for the script mp3info2; brush up the docs.
+
+typeset_audio_dir: new option -c; new generated file *_backcover.tex; slightly
+better conversion of ASCII to TeX; use 'textcomp' (another incompatible LaTeX
+change...); new macros for skips about second-level headings; encapsulate
+\addOnRight; ornaments in *_text.tex and *_cdbooklet.tex; commented out
+support for title; begin merging together the code to generate different
+documents; consistent columnseprule; better positioning of hrule's; template
+to merge several lists into one document; document latex, dvips etc.
+
+audio_rename.pl: support unicode cyrillic.
+
 Release Name: 0.9705
 =======================
 
@@ -30,8 +89,6 @@ Sanity check for wide characters in the prepared raw tag.
 New method ->size for ::File.
 
 More examples for update_tags().
-
-New options -d, -e for the script mp3info2; brush up the docs.
 
 Music_Translate_Fields: only the parsing logic remains; the data is
 moved into separate files (encoding supported) Music_Translate_Fields*.lst

@@ -12,7 +12,7 @@ use File::Basename;
 
 use vars qw /%format %long_names %res_inp @supported_majors %v2names_to_v3 $VERSION @ISA/;
 
-$VERSION="0.9705";
+$VERSION="0.9706";
 @ISA = 'MP3::Tag::__hasparent';
 
 my $trustencoding = $ENV{MP3TAG_DECODE_UNICODE};
@@ -21,10 +21,6 @@ $trustencoding = 1 unless defined $trustencoding;
 my $decode_utf8 = $ENV{MP3TAG_DECODE_UTF8};
 $decode_utf8 = 1 unless defined $decode_utf8;
 my $encode_utf8 = $decode_utf8;
-
-my $default_encoding_read  = $ENV{MP3TAG_DECODE_DEFAULT};
-# Not implemented yet...
-my $default_encoding_write = $ENV{MP3TAG_ENCODE_DEFAULT};
 
 =pod
 
@@ -340,7 +336,7 @@ sub get_frame {
     if (defined $format) {
       $format = [map +{%$_}, @$format], $format->[-1]{data} = 1
 	if defined $raw and ($raw eq 'intact' or $raw eq 'hash');
-      $result = extract_data($result, $format);
+      $result = extract_data($self, $result, $format);
       unless (defined $raw and $raw eq 'hash') {
 	my $k = scalar keys %$result;
 	$k-- if exists $result->{encoding};
@@ -776,7 +772,7 @@ It returns the the short name $fn, which can differ from
 $fname, when there existed already such a frame. If no
 other frame of this kind is allowed, an empty string is
 returned. Otherwise the name of the newly created frame
-is returned (which can have a 01 or 02 or ... appended). 
+is returned (which can have a 01 or 02 or ... appended).
 
 You have to call write_tag() to save the changes to the file.
 
@@ -1172,8 +1168,8 @@ NUMBER's frame with frame name $fname.
 If optional argument $newtext is given, all the found frames are
 removed; if $newtext is defined, a new frame is created (the first
 elements of $descrs and $languages are used as the short description
-and the language, default to C<''> and C<XXX>); otherwise the count of
-removed frames is returned.
+and the language, default to C<''> and C<XXX>); its name is returned;
+otherwise the count of removed frames is returned.
 
 =cut
 
@@ -1206,7 +1202,7 @@ sub _frame_select {
 		for my $f (@info) {
 		    $c++;
 		    push(@by_lang, [$c, $f])	# May create duplicates
-			if defined $f and (defined $f->{Language}
+			if defined $f and (ref $f and defined $f->{Language}
 					   and $l eq __to_lang $f->{Language} 
 					   or $l eq '');
 		}
@@ -1228,6 +1224,7 @@ sub _frame_select {
     if (@_ < 3) {			# Read-only access
 	return unless @select;
 	my $res = $select[0][1]; # Only defined frames here...
+	return $res unless ref $res; # TLEN
 	my $c = keys %$res;
 	$c-- if exists $res->{Description} and defined $shorts;
 	$c-- if exists $res->{Language} and defined $languages;
@@ -1266,6 +1263,30 @@ Same as frame_select(), but returns the list of found frames.
 
 Same as frame_select(), but returns the count of found frames.
 
+=item frame_select_by_descr()
+
+=item frame_have_by_descr()
+
+=item frame_list_by_descr()
+
+Same as frame_select(), frame_have, frame_list, but takes one string
+argument instead of $fname, $descrs, $languages.  The argument should
+be of the form
+
+  NAME(langs)[descr]
+
+Both C<(langs)> and C<[descr]) parts may be omitted; I<langs> should
+contain comma-separated list of needed languages; backslashes in
+I<descr> before backslash and brackets (i.e., C<[]>) are stripped.
+frame_select_by_descr() will return a hash if C<(lang> is omited, but
+the frame has a language field.
+
+=item frame_select_by_descr_simple()
+
+Same as frame_select_by_descr(), but if no language is given, will not
+consider the frame as "complicated" frame even if it contains a
+language field.
+
 =cut
 
 sub frame_have {
@@ -1276,6 +1297,37 @@ sub frame_have {
 sub frames_list {
     my $self = shift;
     $self->_frame_select(0, @_);
+}
+
+sub _frame_select_by_descr {
+    my ($self, $what, $d) = (shift, shift, shift);
+    my($l, $descr) = ('');
+    if ( $d =~ s/^(\w{4})(?:\(([^)]*)\))?(?:\[((?:\\.|[^]\\])*)\])?$/$1/ ) {
+      $l = defined $2 ? [split /,/, $2, -1] : ($what > 1 && !@_ ? '' : undef);
+      $descr = $3;
+      $descr =~ s/\\([\\\[\]])/$1/g if defined $descr;
+    }
+    return $self->_frame_select($what, $d, $descr, $l, @_);
+}
+
+sub frame_have_by_descr {
+    my $self = shift;
+    scalar $self->_frame_select_by_descr(0, @_);
+}
+
+sub frame_list_by_descr {
+    my $self = shift;
+    $self->_frame_select_by_descr(0, @_);
+}
+
+sub frame_select_by_descr {
+    my $self = shift;
+    $self->_frame_select_by_descr(1, @_);
+}
+
+sub frame_select_by_descr_simple {
+    my $self = shift;
+    $self->_frame_select_by_descr(2, @_);
 }
 
 =item year( [@new_year] )
@@ -1676,8 +1728,8 @@ sub read_ext_header {	# XXXX in 2.3, it should be unsyncronized
 # Main sub for getting data from a frame.
 
 sub extract_data {
-	my ($data, $format) = @_;
-	my ($rule, $found,$encoding, $result);
+	my ($self, $data, $format) = @_;
+	my ($rule, $found,$encoding, $result, $e);
 
 	$encoding=0;
 	foreach $rule (@$format) {
@@ -1697,7 +1749,7 @@ sub extract_data {
 			$found = substr $data, 0,$rule->{len};
 			substr ($data, 0,$rule->{len}) = '';
 		}
-	
+
 		# was data found?
 		unless (defined $found && $found ne "") {
 			$found = "";
@@ -1732,10 +1784,10 @@ sub extract_data {
 						      $found);
 			      $found = Encode::encode('UTF-8', $found);
 			    }
-			  } elsif (defined $default_encoding_read) {
+			  } elsif ($e = $self->get_config('decode_encoding_v2')
+				   and $e->[0]) {
 			    require Encode;
-			    $found = Encode::decode( $default_encoding_read,
-						     $found );
+			    $found = Encode::decode( $e->[0], $found );
 			  }
 			}
 
