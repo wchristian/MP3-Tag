@@ -7,7 +7,7 @@
 # Change 1..1 below to 1..last_test_to_print .
 # (It may become useful if the test is moved to ./t subdirectory.)
 
-BEGIN { $| = 1; print "1..78\n"; }
+BEGIN { $| = 1; print "1..93\n"; $ENV{MP3TAG_SKIP_LOCAL} = 1}
 END {print "MP3::Tag not loaded :(\n" unless $loaded;}
 use MP3::Tag;
 $loaded = 1;
@@ -82,7 +82,7 @@ ok(!$mp3->interpolate('%{TXXX02}'), "no TXXX02");
 
 ok($mp3 = MP3::Tag->new("test12.mp3"), 'reinit ourselves');
 ok($mp3->select_id3v2_frame('COMM', 'short', 'yyy', 'this is my COMM(yyy)[short]'), "select_id3v2_frame for write");
-ok($mp3->select_id3v2_frame_by_descr('TXXX[with[\]]', 'this is my TXXX[with[]]'), "select_id3v2_frame_by_descr for write");
+ok($mp3->select_id3v2_frame_by_descr('TXXX[with[]]', 'this is my TXXX[with[]]'), "select_id3v2_frame_by_descr for write");
 ok($mp3->update_tags, 'update');
 
 ok($mp3 = MP3::Tag->new("test12.mp3"), 'reinit ourselves');
@@ -90,7 +90,7 @@ ok($mp3->select_id3v2_frame('COMM', 'short', 'yyy') eq 'this is my COMM(yyy)[sho
 ok($mp3->select_id3v2_frame('COMM', 'short', 'yYy') eq 'this is my COMM(yyy)[short]', "select_id3v2_frame for read");
 ok($mp3->select_id3v2_frame('COMM', 'short', '') eq 'this is my COMM(yyy)[short]', "select_id3v2_frame for read");
 ok($mp3->select_id3v2_frame('TXXX', 'with[]') eq 'this is my TXXX[with[]]', "select_id3v2_frame for read, TXXX with []");
-ok($mp3->select_id3v2_frame_by_descr('TXXX[with[\]]') eq 'this is my TXXX[with[]]', "select_id3v2_frame_by_descr for read, TXXX with []");
+ok($mp3->select_id3v2_frame_by_descr('TXXX[with[]]') eq 'this is my TXXX[with[]]', "select_id3v2_frame_by_descr for read, TXXX with []");
 
 # these returns hash
 ok($mp3->select_id3v2_frame('COMM', 'short', undef)->{Text} eq 'this is my COMM(yyy)[short]', "select_id3v2_frame for read, lang=undef");
@@ -183,6 +183,32 @@ ok($mp3->{ID3v2}->{tagsize} <= 512+128+100, 'tagsize small enough');
 ok(has_1("test13.mp3", 1), "has 1");
 ok($mp3->title =~ /Other/, "Title preserved");
 
+
+{local *F; open F, '>test12.mp3' or warn; print F 'empty'}
+
+$mp3 = MP3::Tag->new("test12.mp3");
+ok($mp3, "Got tag");
+my $id  = 'a|a||a|||a}|}||}|||}|]|||]|||||]||||';
+my $id1 = 'a|a||a|||a}|}||}|||}]|]||]||';
+my $id0 = 'a|a||a|||a|}|||}|||||}|||||||}]|]||]||||';
+$id =~ s/\|/\\/g;
+$id1 =~ s/\|/\\/g;
+$id0 =~ s/\|/\\/g;
+$mp3->select_id3v2_frame_by_descr("TXXX[$id1]", 'Val');
+ok($mp3, "Set frame");
+ok($mp3->select_id3v2_frame('TXXX', $id1) eq 'Val', "Frame is set indeed");
+ok($mp3->select_id3v2_frame_by_descr("TXXX[$id1]") eq 'Val', "Frame is selectable");
+ok($mp3->interpolate("%{TXXX[$id]}") eq 'Val', "Frame is interpolatable");
+ok($mp3->interpolate("%{TXXX[$id]:Foo}") eq 'Foo', "Frame is conditionally interpolatable");
+ok($mp3->interpolate("%{TXXX[$id]:$id0}") eq $id1, "Frame is conditionally interpolatable with complicated expansion");
+ok($mp3->interpolate("%{!TXXX[o$id]:Foo}") eq 'Foo', "Frame is neg-conditionally interpolatable");
+ok($mp3->interpolate("%{TXXX[$id]|TXXX[o$id]}") eq 'Val', "Frame is |-interpolatable");
+ok($mp3->interpolate("%{TXXX[o$id]|TXXX[$id]}") eq 'Val', "Frame is |-interpolatable");
+ok($mp3->interpolate("%{TXXX[o$id]||$id0}") eq $id1, "Frame is ||-interpolatable with complicated expansion");
+ok($mp3->interpolate("%{TXXX[$id]||$id0}") eq 'Val', "Frame is ||-interpolatable with complicated expansion");
+ok($mp3->interpolate("%{TXXX[o$id]||%{TXXX[$id]}}") eq 'Val', "Frame is ||-interpolatable with a frame in expansion");
+ok($mp3->interpolate("%{TXXX[$id]&TXXX[$id]&TXXX[o$id]&TXXX[$id]}") eq 'Val; Val; Val', "Frame is &-interpolatable");
+ok($mp3->update_tags(), 'update');
 
 my @failed;
 #@failed ? die "Tests @failed failed.\n" : print "All tests successful.\n";

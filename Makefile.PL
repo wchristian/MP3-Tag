@@ -5,7 +5,8 @@ use strict;
 my @programs_to_install = qw(mp3info2 typeset_audio_dir);
 my $install_bin = 1;
 
-if (grep $_ eq '-n', @ARGV or grep /^LIB=/, @ARGV) {
+if ( grep $_ eq '-n', @ARGV
+	 or grep /^LIB=/, @ARGV and not grep /^INSTALLSCRIPT=/, @ARGV ) {
   @ARGV = grep $_ ne '-n', @ARGV;
   warn "Skipping installation of scripts...\n";
   @programs_to_install = ();

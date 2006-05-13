@@ -7,7 +7,7 @@ use MP3::Tag 0.9706;
 use Getopt::Std 'getopts';
 use strict;
 
-my $VERSION = '1.00';
+my $VERSION = '1.01';
 
 BEGIN { eval 'require Music_Translate_Fields' }
 
@@ -86,11 +86,13 @@ if ($opt{F}) {
   }
 }
 
-my @del;
+my (@del, @del_tag);
 if ($opt{d}) {
   my $o = $opt{d};
-  push @del, $1 while $o =~ s/^ ( $FNAME ) (,|$) //xo;
+  push @del, $1 while $o =~ s/^ ( $FNAME | ID3v[12] ) (,|$) //xo;
   die "Unrecognized part of -d option: `$o'" if length $o;
+  @del_tag = grep /^ID3v[12]$/, @del;
+  @del = grep !/^ID3v[12]$/, @del;
 }
 
 # Configure stuff...
@@ -138,6 +140,11 @@ sub process_file ($) {
 	print $mp3->interpolate(<<EOC) unless exists $opt{p};
 File: %F
 EOC
+	for my $tag (@del_tag) {	# delete whole tags
+	  $mp3->delete_tag($tag);
+	}
+	$mp3 = MP3::Tag->new($f) if @del_tag;
+
 	my $data = $mp3->autoinfo('from');
 	my $modify = $opt{2};
 	my @args;
@@ -203,9 +210,9 @@ EOC
 	}
 	print $mp3->interpolate(exists $opt{p} ? $opt{p} : <<EOC);
 Title:   %-50t Track: %n
-%{TCOM:Composer: %\\{TCOM\\}
-}%{TEXT:Text: %\\{TEXT\\}
-}${performer}
+%{TCOM:Composer: %{TCOM}
+}%{TEXT:Text: %{TEXT}
+}$performer
 Album:   %-50l Year:  %y
 Comment: %-50c Genre: %g
 EOC
@@ -338,7 +345,8 @@ C<-E> option.
 The option C<-d> should contain the comma-separated list of ID3v2
 frames to delete.  A frame specification is the same as what might be
 given to C<"%{...}"> frame interpolation command, e.g., C<TIT3>,
-C<COMM03>, C<COMM(fra)[short title]>.
+C<COMM03>, C<COMM(fra)[short title]>.  In addition, if the list
+contains C<ID3v1> or C<ID3v2>, whole tags will be deleted.
 
 Likewise, the option C<-F> allows setting of arbitrary C<ID3v2>
 frames: if one needs to set one frame, use the directive C<FRAME_spec=VALUE>:
@@ -358,12 +366,11 @@ The option C<-P> is a very powerful generalization of what can be done
 by options C<-F>, C<-d>, and C<-t -a -l -y -g -c -n>.  The value should
 contain the parse recipes.  They become the configuration item
 C<parse_data> of C<MP3::Tag>; eventually this information is processed
-by L<MP3::Tag::ParseData|MP3::Tag::ParseData> module.  The option is
+by L<MP3::Tag::ParseData|MP3::Tag::ParseData> module (if the latter present in the
+chain of heuristics; see option C<-C>).  The option is
 split into C<[$flag, $string, @patterns]> on its first
 non-alphanumeric character; if multiple options are needed, one should
-separate them by this character repeated 3 times.  This data is
-processed by L<MP3::Tag::ParseData> (if the latter present in the
-chain of heuristics; see option C<-C>).
+separate them by this character repeated 3 times.  (See examples: L<EXAMPLES>.)
 
 If option C<-G> is specified, the file names on the command line are
 considered as glob patterns.  This may be useful if the maximal
@@ -449,10 +456,11 @@ as a replacement for the second one.
 Note that it may be more readable to set I<artist> to C<%{d0}> by an
 explicit asignment, with arguments similar to
 
-  -E "p/i:a" -a "%{d0}"
+  -E "p/i:Fpa" -a "%{d0}"
 
-(this value of C<-E> requests C<%>-interpolation of the option C<-a> in
-addition to the default C<\>-interpolation of C<-p>).
+(this value of C<-E> requests C<%>-interpolation of the option C<-a>
+in addition to the default C<\>-interpolation of C<-p>, and
+C<%>-interpolation of C<-F> and C<-p>).
 
 To give more examples,
 
@@ -559,9 +567,13 @@ actually a composer; C<comment> is of one of two forms:
   Performers; Orchestra; Conductor
   Orchestra; Conductor
 
-To set the specific MP3 frames, use
+To set the specific MP3 frames via C<-P> rules, use
 
-  mp3info2 -P "mi/@a/@{TCOM}///mi/@c/@{U0}; @{TPE2}; @{TPE3}/@{TPE2}; @{TPE3}" -R .
+  mp3info2 -@P "mi/@a/@{TCOM}///mi/@c/@{U1}; @{TPE2}; @{TPE3}/@{TPE2}; @{TPE3}" -R .
+
+With C<-F> options, this can be simplified as
+
+  mp3info2 -@F "TCOM=@a" -P "mi/@c/@{U1}; @{TPE2}; @{TPE3}/@{TPE2}; @{TPE3}" -R .
 
 To copy ID3 tags of MP3 files in the current directory to files in directory
 F</tmp/mp3> with the extension F<.tag> (and print "progress report"), use
@@ -579,17 +591,20 @@ C<eng>), call
 
   mp3info2 -@P "fim;../text/@{d0}/@B.txt;@{COMM(eng)[lyrics]}" -Ru .
 
-inside the directory F<audio>.  (Change C<fim> to C<Ffim> to ignore the
-audio files for which the corresponding text file does not exist.)  (Of course,
-to follow the specifications, one should have used the field
-C<"%{USLT(eng)[]}"> instead of C<"%{COMM(eng)[lyrics]}">.
+inside the directory F<audio>.  (Change C<fim> to C<Ffim> to ignore
+the audio files for which the corresponding text file does not exist.)
+(Of course, to follow the specifications, one should have used the
+field C<"%{USLT(eng)[]}"> instead of C<"%{COMM(eng)[lyrics]}">).  With
+C<-F> option, one could set the C<USLT> frame as
+
+  mp3info2 -@F "USLT(eng)[]=@{I(fim)../text/@{d0}/@B.txt}" -Ru .
 
 Finish by a very simple example: all that the pattern
 
   -P 'i;%t;%t'
 
-does is removal of trailing and leading blanks from the title (which is deduced by
-other means).
+does is removal of trailing and leading blanks from the title (which
+is deduced by other means).
 
 =head1 INCOMPATIBILITIES with F<mp3info>
 
@@ -634,6 +649,6 @@ Ilya Zakharevich <cpan@ilyaz.org>.
 
 =head1 SEE ALSO
 
-MP3::Tag, MP3::Tag::ParseData
+MP3::Tag, MP3::Tag::ParseData, audio_rename
 
 =cut

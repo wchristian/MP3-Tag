@@ -1,6 +1,6 @@
 #!/usr/bin/perl -w
 
-$VERSION = 0.01;
+$VERSION = 0.02;
 
 use strict;
 use MP3::Tag;
@@ -12,8 +12,8 @@ my %opt = (2 => '%a', n => 1, a => 2, t => 1);
 # Level=2 header; Level=1 header (default - dir),
 # use duration, year, whole dates, replace @ by %, basename of output files,
 # ignore 'author' on level > this in directory tree
-# use 'album' for titles with depth above this..., encodings
-getopts('2:1:TyYn@B:a:t:e:c', \%opt);
+# use 'album' for titles with depth above this..., encodings, no comment,lyrics
+getopts('2:1:TyYn@B:a:t:e:cL', \%opt);
 if ($opt{'@'}) {
   $opt{$_} =~ s/\@/\%/g for keys %opt;
 }
@@ -148,13 +148,14 @@ sub unwind_dir {
 
 sub to_TeX ($) {
   # Assume high-bit characters are letters
-  (my $in = shift) =~ s/([&_\$#%])/\\$1/g;
+  (my $in = shift) =~ s/([&_\$#%~])/\\$1/g;
   $in =~ s/(\b|(?<=\.\.\.)|(?<=[\x80-\xFF]))`\B|`$/'/g;
   $in =~ s/\B'(\b|(?=[\x80-\xFF]))|^'/`/g;
   $in =~ s/(\b|(?<=\.\.\.)|(?<=[\x80-\xFF]))"\B|"$/''/g;
   $in =~ s/\B"(\b|(?=[\x80-\xFF]))|^"/``/g;
   $in =~ s/\.{3}/\\dots{}/g;
   $in =~ s/\s+-\s+/---/g;
+  $in =~ s/(?<=\b[[:upper:]]\.)\s+(?=[[:upper:]])/~/g;
   $in =~ s/\bDvorák\b/Dvo\\v rák/g;
   $in;
 }
@@ -173,6 +174,7 @@ sub cmp_u ($$) {
   my ($a, $b) = (shift, shift);
   (defined $a) ? (not defined $b or $a cmp $b) : defined $b;
 }
+my $total_sec = 0;
 
 # Compare with postponed data, either emit, or postpone
 my $previous;
@@ -223,7 +225,10 @@ sub print_this_mp3 ($) {
   $comment = "\\precomment " . to_TeX($this->{comment}) . "\\postcomment "
     if defined $this->{comment};
   my $year = (defined $this->{year} ? $this->{year} : '');
+  $year .= '\hasSyncLyrics' if $this->{syncLyr};
+  $year .= '\hasUnsyncLyrics' if $this->{unsyncLyr};
   if ($opt{T}) {
+    $total_sec += $this->{len};
     my $dur = to_duration $this->{len};
     $dur .= '\postduration ' if length $year;
     $year = "$dur$year"
@@ -276,6 +281,10 @@ sub print_mp3 {
     }
     $this->{year} = $year if length $year;
   }
+  if ($opt{L}) {
+    $this->{syncLyr} = $tag->have_id3v2_frame('SYLT');
+    $this->{unsyncLyr} = $tag->have_id3v2_frame('USLT');
+  }
   print_this_mp3($this);
   return;
 }
@@ -316,7 +325,9 @@ my $common1 = <<'EOP';
 \def\posttitle{\par\egroup}
 \def\precomment{ \bgroup\it}
 \def\postcomment{\egroup}
-\def\pretrack#1\posttrack{#1.~}
+\def\pretrack#1\posttrack{#1.\hbox{~}}	% Not expandable
+\def\hasUnsyncLyrics{\textcircled{\textsc{L}}}
+\def\hasSyncLyrics{\textcircled{\textsc{S}}}
 %\def\preyear{ \hfil\hbox{}\hskip0pt\hbox{}\nobreak\hskip0pt plus 1fill\nobreak[}
 %%\def\preyear{\unskip\nobreak\hfil\penalty50\hskip0.75em\hbox{}\nobreak\hfill[}
 %\def\postyear{]}
@@ -382,10 +393,11 @@ and add some content
 \begin{multicols}{\COLUMNS}
 EOP
 
+my $base = defined $opt{B}? $opt{B} : '';	# Avoid warning
 my $envelop_12cm_on = <<EOP;
 %\\footnotesize
 %\\begin{center}
-%\\input{$opt{B}_title}
+%\\input{${base}_title}
 %\\end{center}
 
 \\vskip 3pt
@@ -652,7 +664,7 @@ print $out_envelop_backcover <<'EOP' if defined $out_envelop_backcover;
 \hrule
 %\addvspace{-1.5ex}
 \begin{center}
-{\bf \small \today}
+{\bf \small \totalDuration\today}
 \end{center}
 
 %\vfill\vfil
@@ -679,7 +691,7 @@ print $out_envelop_12cm <<'EOP', $optional_cont if defined $out_envelop_12cm;
 \hrule height1.7pt\relax
 %\addvspace{-1.5ex}
 \begin{center}
-{\bf \small \today}
+{\bf \small \totalDuration\today}
 \end{center}
 
 EOP
@@ -715,6 +727,12 @@ for (@ARGV) {
   chdir $d or die;
 }
 
+if ($opt{T}) {
+  $total_sec = to_duration $total_sec;
+  print "\\gdef\\totalDuration{Total time: $total_sec. }%\n";
+}
+
+
 print $out_envelop_cdcover <<'EOP' if defined $out_envelop_cdcover;
 
 %\end{multicols}
@@ -745,8 +763,8 @@ typeset_audio_dir - produce B<TeX> listing of directories with audio files.
 
   # Use artist as toplevel heading, album as the 2nd level; use track numbers;
   # name is based on title for any depth in directory hierarchy;
-  # likewise for generation of 2nd level heading.
-  typeset_audio_dir -@ -ynT -1 "@a" -2 "@l" -t 1000 -a 1000 -B All .
+  # likewise for generation of 2nd level heading.  Mark pieces with lyrics
+  typeset_audio_dir -@ -ynTL -1 "@a" -2 "@l" -t 1000 -a 1000 -B All .
 
   # Likewise, but the name is based on the album; ignore comments
   typeset_audio_dir    -yTn -1 "" -2 ""  -c -t -1e100 -a -1e100 -B All_short .
@@ -937,7 +955,7 @@ Modify the formatting macros to suit your needs.
 One can combine two (or more) lists (e.g., with the short style, and
 the long style) into one output file; the generated files
 F<..._cdbooklet.tex> and F<..._text.tex> already have a necessary
-template at the end.  For example, with two lists created in
+template (disabled) at the end.  For example, with two lists created in
 L<"SYNOPSIS">, F<All_list.tex>, and F<All_short_list.tex>, find
 C<\iffalse> near the end of F<All_short_cdbooklet.tex> and change it
 to C<\iftrue>; then change the name in the directive
@@ -950,7 +968,7 @@ This will make the "short" cdbooklet become a kind of "table of
 contents" for the combined "short+long" cdbooklet.  (Of course, one
 can change the values of macros C<\dirSIZE>, C<\COLUMNS>, size of
 skips and of type [as C<\scriptsize> above] to suit your needs - the
-point is that they should not be the same for the second list.)
+point is that they should not be necessarily the same for the second list.)
 
 =cut
 

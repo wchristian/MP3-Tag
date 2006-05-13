@@ -7,7 +7,7 @@
 # Change 1..1 below to 1..last_test_to_print .
 # (It may become useful if the test is moved to ./t subdirectory.)
 
-BEGIN { $| = 1; print "1..105\n"; }
+BEGIN { $| = 1; print "1..105\n"; $ENV{MP3TAG_SKIP_LOCAL} = 1}
 END {print "MP3::Tag not loaded :(\n" unless $loaded;}
 use MP3::Tag;
 $loaded = 1;
@@ -43,13 +43,13 @@ ok($mp3->interpolate('%{COMM[foo]}') eq 'Testing...', "Got tag via %{COMM[foo]}"
 ok($mp3->interpolate('%{COMM(rus,EN,#1)[foo]}') eq '', "No tag via %{COMM(rus,EN,#1)[foo]}");
 #my $r = $mp3->interpolate('%{!COMM(rus,EN,#1)[foo]:<%\{COMM(rus,EN,#1,)[foo]\}>}');
 #warn "'$r'\n";
-ok($mp3->interpolate('%{!COMM(rus,EN,#1)[foo]:<%\{COMM(rus,EN,#1,)[foo]\}>}')
+ok($mp3->interpolate('%{!COMM(rus,EN,#1)[foo]:<%{COMM(rus,EN,#1,)[foo]}>}')
    eq '<Testing...>', "Conditional via %{COMM(rus,EN,#1)[foo]}");
 
-ok($mp3->interpolate('%{COMM(rus,EN,#1)[foo]||<%\{COMM(rus,EN,#1,)[foo]\}>}')
+ok($mp3->interpolate('%{COMM(rus,EN,#1)[foo]||<%{COMM(rus,EN,#1,)[foo]}>}')
    eq '<Testing...>', "Alternative via %{COMM(rus,EN,#1)[foo]}");
 
-ok($mp3->interpolate('%{COMM(rus,EN,#1,)[foo]||<%\{COMM(rus,EN,#1,)[foo]\}>}')
+ok($mp3->interpolate('%{COMM(rus,EN,#1,)[foo]||<%{COMM(rus,EN,#1,)[foo]}>}')
    eq 'Testing...', "Alternative via %{COMM(rus,EN,#1,)[foo]}");
 
 ok($mp3->interpolate('%{COMM(rus,EN,#1)[foo]|COMM(rus,EN,#1,)[foo]}')
@@ -59,12 +59,12 @@ ok($mp3->interpolate('%{COMM(rus,EN,#1,)[foo]|COMM02}')
 ok($mp3->interpolate('%{COMM(rus,EN,#1)[foo]|f}')
    eq 'test12.mp3', "Alternative via %{COMM(rus,EN,#1)[foo]}");
 
-ok($mp3->interpolate('%{COMM01||<%\{COMM(rus,EN,#1,)[foo]\}>}')
+ok($mp3->interpolate('%{COMM01||<%{COMM(rus,EN,#1,)[foo]}>}')
    eq '<Testing...>', "Alternative via %{COMM01}");
 
 ok($mp3->set_id3v2_frame('TLEN', 123456), 'Set TLEN frame');
 
-ok($mp3->interpolate('%{TLEN||<%\{COMM(rus,EN,#1,)[foo]\}>}')
+ok($mp3->interpolate('%{TLEN||<%{COMM(rus,EN,#1,)[foo]}>}')
    eq '123456', "Alternative via %{TLEN}");
 
 ok($mp3->interpolate('%{COMM01|COMM(rus,EN,#1,)[foo]}')
@@ -74,10 +74,11 @@ ok($mp3->interpolate('%{TLEN|COMM(rus,EN,#1,)[foo]}')
 ok($mp3->interpolate('%{COMM01|f}')
    eq 'test12.mp3', "Alternative via %{TLEN}");
 
-ok($mp3->interpolate('%{y||<%\{COMM(rus,EN,#1,)[foo]\}>}')
+ok($mp3->interpolate('%{y||<%{COMM(rus,EN,#1,)[foo]}>}')
    eq '<Testing...>', "Alternative via %{y}");
 
-ok($mp3->interpolate('%{f||<%\{COMM(rus,EN,#1,)[foo]\}>}')
+print "# res=`", $mp3->interpolate('%{f||<%{COMM(rus,EN,#1,)[foo]}>}'), "'\n";
+ok($mp3->interpolate('%{f||<%{COMM(rus,EN,#1,)[foo]}>}')
    eq 'test12.mp3', "Alternative via %{f}");
 
 ok($mp3->interpolate('%{y|COMM(rus,EN,#1,)[foo]}')
@@ -145,7 +146,9 @@ ok($mp3->interpolate('%{COMM01}'), "have COMM01");
 ok($mp3->interpolate('%{COMM02}'), "have COMM02");
 ok(!$mp3->interpolate('%{COMM03}'), "no COMM03");
 
-ok(($mp3->interpolate('%{COMM[a]&COMM[aa]&COMM[b]&COMM[c]}')) eq 'bar; baz; foo',
+my $r = $mp3->interpolate('%{COMM[a]&COMM[aa]&COMM[b]&COMM[c]}');
+print "# `$r'\n";
+ok($r eq 'bar; baz; foo',
    "parse COMM[a]&COMM[aa]&COMM[b]&COMM[c]");
 
 ok($mp3->update_tags, 'update');

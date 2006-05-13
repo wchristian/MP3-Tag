@@ -139,11 +139,16 @@ sub short_person ($$) {
     # Separate initials by spaces unless in a group of initials
     $a =~ s/\b(\w\.)(?!$|[-\s]|\w\.)/$1 /g;
     my @a = split /\s+/, $a;
-    # Skip if there are non upcased parts (e.g., "-") or '()'
-    unless (grep lc eq $_, @a or @a <= 1 or $a =~ /\(|[,;]\s/) {
+    # Skip shorting if there are strange non upcased parts (e.g., "-") or '()')
+    my @check = @a;
+    my $von = (@a > 2 and $a[-2] =~ /^[a-z]+$/);
+    splice @check, $#a - 1, 1 if $von;
+    # Ignore mid parts (skip if there are non upcased parts (e.g., "-") or '()')
+    unless (grep lc eq $_, @check or @a <= 1 or $a =~ /\(|[,;]\s/) {
       my $i = substr($a[0], 0, 1);
       $a[0] =  "$i." if $a[0] =~ /^\w\w/ and lc($i) ne $i;
-      @a = @a[0,-1];
+      # Keep "from" in L. van Beethoven, M. di Falla, I. von Held, J. du Pre
+      @a = @a[0,($von ? -2 : ()),-1];
     }
     $a = join ' ', @a;
   }
@@ -151,20 +156,146 @@ sub short_person ($$) {
   return ref $ini_a ? [$a, $ini_a->[1]] : $a;
 }
 
-sub translate_name ($$) {
+my %comp;
+
+sub load_composer ($$) {
+  my ($self, $c) = @_;
+  eval {$c = $self->shorten_person($c)};
+  my $ini = $c;
+  return $comp{$ini} if exists $comp{$ini};
+  $c =~ s/[^-\w]/_/g;
+  $c =~ s/__/_/g;
+  # XXX See Wikipedia "Opus number" for more compilete logic
+  $comp{$ini}{opus_rx} = qr/\bOp\.\s*\d+[a-d]?(?:[.,;\s]\s*No\.\s*\d+)?/;
+  my $f = $INC{'Music_Translate_Fields.pm'};
+  warn("panic: can't find myself"), return 0 unless -r $f;
+  $f =~ s/\.pm$/-$c.comp/i
+    or warn("panic: can't translate `$f' to -$c.comp"), return 0;
+  return $comp{$ini} unless -r $f;
+  my @works;
+  open COMP, "< $f" or die "Can't read $f: $!";
+  for my $l (<COMP>) {
+    if ($l =~ /^#\s+opus_rex\s(.*?)\s*$/) {
+      $comp{$ini}{opus_rx} = $1;
+    } elsif ($l =~ /^#[^#]/) {
+      warn "Unrecognized line of `$f': $l"
+    } elsif ($l !~ /^##/) {
+      $l = normalize_piece($self, $l); # Recursive call to ourselves...
+      push @works, $l;
+    }
+  }
+  close COMP or die "Error reading $f: $!";
+  return unless @works;
+  my $r = qr/^(.*?($comp{$ini}{opus_rx}))/s;
+  # Name "as in Wikipedia:Naming conventions (pieces of music)"
+  my (%opus, %name);
+  for my $l (@works) {
+    my ($pre, $opus) = ($l =~ /$r/);
+    $pre = $l unless $opus;
+    my ($significant) = ($pre =~ /^(.*?\bNo[.]?\s*\d+)/is);
+    ($significant) = ($pre =~ /^(.*?);/s) || $pre unless $significant;
+    ($significant) = $pre unless $significant;
+    $significant = lc $significant;
+    warn "Duplicate name `$significant'"
+      if $significant and $name{$significant};
+    $name{$significant} = $l if $significant;
+    $opus or next;
+    $opus = lc $opus;
+    warn "Duplicate opus number `$opus'" if $opus{$opus};
+    $opus{$opus} = $l;
+  }
+  $comp{$ini}{works} = \@works;
+  $comp{$ini}{opus} = \%opus if %opus;
+  $comp{$ini}{name} = \%name if %name;
+  $comp{$ini};
+}
+
+sub translate_signature ($$$$) { # One should be able to override this
+  shift;
+  join '', @_;
+}
+$Music_Translate_Fields::translate_signature = \&translate_signature;
+
+my %alteration = (dur => 'major', moll => 'minor');
+my %mod = (is => 'sharp', es => 'flat', '#' => 'sharp', b => 'flat');
+
+# XXXX German ==> English (nontrivial): H ==> B, His ==> B sharp, B ==> B flat
+# XXXX Do not touch B (??? Check "Klavier" etc to detect German???)
+my %key = (H => 'B');
+
+sub normalize_signature ($$$$) {
+  my ($self, $key, $mod, $alteration) = @_;
+  $alteration ||= ($key =~ /[A-Z]/) ? ' major' : ' minor';
+  $alteration = lc $alteration;
+  $alteration =~ s/^-?\s*/ /;
+  $alteration =~ s/(\w+)/ $alteration{$1} || $1 /e;
+  $mod =~ s/^-?\s*/ / if $mod;		# E-flat, Cb
+  $mod = lc $mod;
+  $mod =~ s/(\w+)/ $mod{$1} || $1 /e;
+  $key = uc $key;
+  $key = $key{$key} || $key;
+  &$Music_Translate_Fields::translate_signature($self,$key,$mod,$alteration);
+}
+
+sub normalize_piece ($$) {
   my ($self, $n) = (shift, shift);
   my $ini_n = $n;
   $n = $n->[0] if ref $n;		# [value, handler]
-  $n =~ s/\bOp([.\s]\s*|.?(?=\d))/Op. /gi;
+  $n =~ s/^\s+//;
+  $n =~ s/\s+$//;
+  $n =~ s/\s{2,}/ /g;
+  $n =~ s/\bOp(us\s+(?=\d)|[.\s]\s*|\.?(?=\d))/Op. /gi;
   $n =~ s/\bN[or]([.\s]\s*|.?(?=\d))/No. /gi;	# nr12
   $n =~ s/(\W)#\s*(?=\d)/${1}No. /gi;	# #12
-  $n =~ s/[.,;]\s*Op\./; Op./gi;	# #12
+  # XXXX Is this `?' for good?
+  $n =~ s/[.,;]?\s*(Op\.|WoO\b)/; $1/gi; # punctuation before Op.
+  # punctuation between Op. and No (as in Wikipedia for most expanded listing)
+  $n =~ s/\b(Op\.\s+\d+[a-d]?)(?:[,;.]?|\s)\s*(?=No\.\s*\d+)/$1, /gi;
+  # Tricky part: normalize case "In b#"
+  $n =~ s/\bin\s+([a-h])(\s*[b#]|(?:\s+|-)(?:flat|sharp)|[ie]s|)((?:(?:\s+|-)(?:major|minor|dur|moll))?)(?=\s*[;"]|$)/
+    "in " . normalize_signature($self,$1,$2,$3)/ie;
+  my $c = eval {$self->composer} || $self->artist;
+  my $canon;
+  {
+    my $tbl = ($c and load_composer($self, $c));
+    $tbl or last;
+    # Convert Op. 23-3 to Op. and No
+    my ($o, $no) = ($n =~ /\b(Op\.\s+\d+[a-d]?[-\/]\d+[a-d]?)((?:[,;.]?|\s)\s*(?:No\.\s*\d+))?/);
+    $n =~ s/\b(Op\.\s+\d+[a-d]?)[-\/](\d+[a-d]?)/$1, No. $2/i
+      if $o and not $no and $o !~ /^$tbl->{opus_rx}$/;
+    $tbl->{works} or last;
+    # XXX See Wikipedia "Opus number" for more compilete logic
+    my ($opus) = ($n =~ /($tbl->{opus_rx})/);
+    if ($opus) {
+      $canon = $tbl->{opus}{lc $opus} or last;
+    } else {
+      my ($significant) = ($n =~ /^(.*?\bNo[.]?\s*\d+)/i);
+      ($significant) = ($n =~ /^(.*?);/s) unless $significant;
+      $significant ||= $n;
+      $canon = $tbl->{name}{lc $significant} or last;
+    }
+    if ($canon) {
+      my (%w, %w1);
+      for my $w (split /[-.,;\s]+/, $canon) {
+	$w{lc $w}++;
+      }
+      for my $w (split /[-.,;\s]+/, $n) {
+	$w1{lc $w}++ unless $w{lc $w};
+      }
+      if (%w1) {
+	warn "Unknown words in title: `", join("` '", sort keys %w1), "'"
+	  unless $ENV{MUSIC_TRANSLATE_FIELDS_SKIP_WARNINGS};
+	last
+      }
+    }
+    $n = $canon;		# XXXX Simple try (need to compare word-for-word)
+  }
   return ref $ini_n ? [$n, $ini_n->[1]] : $n;
 }
 
 for my $field (qw(album title title_track)) {
   no strict 'refs';
-  *{"translate_$field"} = \&translate_name;
+  *{"translate_$field"} = \&normalize_piece;
 }
 
 # perl -Ii:/zax/bin -MMusic_Translate_Fields -wle "BEGIN{binmode $_, ':encoding(cp866)' for \*STDIN, \*STDOUT, \*STDERR}print Music_Translate_Fields->check_persons"
@@ -191,7 +322,7 @@ my %aliases;
 my $glob = $INC{'Music_Translate_Fields.pm'};
 warn("panic: can't find myself"), return 0 unless -r $glob;
 $glob =~ s/\.pm$/*.lst/i
-  or warn("panic: can't translate `$glob' to .txt"), return 0;
+  or warn("panic: can't translate `$glob' to .lst"), return 0;
 my @lists = <${glob}>;
 warn("panic: can't find name lists in `$glob'"), return 0 unless @lists;
 

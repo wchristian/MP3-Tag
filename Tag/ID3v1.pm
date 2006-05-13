@@ -9,7 +9,7 @@ package MP3::Tag::ID3v1;
 use strict;
 use vars qw /@mp3_genres @winamp_genres $AUTOLOAD %ok_length $VERSION @ISA/;
 
-$VERSION="0.9706";
+$VERSION="0.9707";
 @ISA = 'MP3::Tag::__hasparent';
 
 # allowed fields in ID3v1.1 and max length of this fields (except for track and genre which are coded later)
@@ -186,6 +186,9 @@ Check whether the info in ID3v1 tag fits into the format of the file.
 sub fits_tag {
     my ($self, $hash) = (shift, shift);
     my $elt;
+    if (defined (my $track = $hash->{track})) {
+      return unless $track =~ /^\d{0,3}$/ and $track < 256;
+    }
     for $elt (qw(title artist album comment year)) {
 	next unless defined (my $data = $hash->{$elt});
 	$data = $data->[0] if ref $data;

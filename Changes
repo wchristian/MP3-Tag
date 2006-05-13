@@ -1,3 +1,85 @@
+Release Name: 0.9707
+=======================
+
+%M was not recognized.
+
+parsing for "%n" allows track numbers of the form 123/789 too; such track
+numbers are considered as "not fit for ID3v1".
+
+Document that set_id3v2_frame(), select_id3v2_frame() remove the old value(s).
+
+New method interpolate_with_flags().  Make ...::Parse use this method.
+
+New methods composer(), performer(), delete_tag(), _interpolate() in
+MP3::Tag.  Allow customization via local configuration modules
+MP3::Tag::User MP3::Tag::Site MP3::Tag::Vendor.
+
+New interpolated escape %{I(FLAGS)VALUE}.
+
+New configuration variables id3v23_unsync, composer, performer,
+translate_composer, translate_performer.
+
+New test t/interpolate.t.
+
+Incompatible change: kill backslashitis in %-escapes:
+    frame_select_by_descr() etc: no backslashitis whatsoever.
+    interpolate(): no need to backwack all \{}[], only the innermost delimiter
+      char, and only those backslashes which preseed the innermost delimiter.
+    Likewise for parse(), _parse_rex_microinterpolate().
+  Need to change '%{y||<%\{COMM(rus,EN,#1,)[foo]\}>}' to '%{y||<%{COMM(rus,EN,#1,)[foo]}>}'
+	'%%02t_Title: `%012.12t\'; %{TLAN} %{TLAN01: have %\{TLAN01\}} %{!TLAN02:, do not have TLAN02}'
+     to '%%02t_Title: `%012.12t\'; %{TLAN} %{TLAN01: have %{TLAN01}} %{!TLAN02:, do not have TLAN02}'
+	'%{!COMM(rus,EN,#1)[foo]:<%\{COMM(rus,EN,#1,)[foo]\}>}'
+     to '%{!COMM(rus,EN,#1)[foo]:<%{COMM(rus,EN,#1,)[foo]}>}'
+	'%{COMM(rus,EN,#1)[foo]||<%\{COMM(rus,EN,#1,)[foo]\}>}'
+     to '%{COMM(rus,EN,#1)[foo]||<%{COMM(rus,EN,#1,)[foo]}>}'
+	'%{COMM(rus,EN,#1,)[foo]||<%\{COMM(rus,EN,#1,)[foo]\}>}'
+     to '%{COMM(rus,EN,#1,)[foo]||<%{COMM(rus,EN,#1,)[foo]}>}'
+	'%{COMM01||<%\{COMM(rus,EN,#1,)[foo]\}>}'
+     to '%{COMM01||<%{COMM(rus,EN,#1,)[foo]}>}'
+	'%{TLEN||<%\{COMM(rus,EN,#1,)[foo]\}>}'
+     to	'%{TLEN||<%{COMM(rus,EN,#1,)[foo]}>}'
+	$mp3->select_id3v2_frame_by_descr('TXXX[with[\]]', 'this is my TXXX[with[]]')
+	 to $mp3->select_id3v2_frame_by_descr('TXXX[with[]]', 'this is my TXXX[with[]]')
+
+
+    In mp3info2:
+	      print $mp3->interpolate(exists $opt{p} ? $opt{p} : <<EOC);
+      Title:   %-50t Track: %n
+      %{TCOM:Composer: %\\{TCOM\\}
+      }%{TEXT:Text: %\\{TEXT\\}
+      }$performer
+      Album:   %-50l Year:  %y
+      Comment: %-50c Genre: %g
+      EOC
+    to:
+	      print $mp3->interpolate(exists $opt{p} ? $opt{p} : <<EOC);
+      Title:   %-50t Track: %n
+      %{TCOM:Composer: %{TCOM}
+      }%{TEXT:Text: %{TEXT}
+      }$performer
+      Album:   %-50l Year:  %y
+      Comment: %-50c Genre: %g
+      EOC
+
+mp3info2: allow deletion of whole tags by -d; improve docs.
+
+typeset_audio_dir: improve typesetting, allow indication whether lyrics
+is present, of total duration.
+
+Music_Translate_Fields: short_name works better for, e.g., Beethoven (allow
+  the "from" part, as von/van/di/de); normalize key signature and the
+  composition name (per composer file; set MUSIC_TRANSLATE_FIELDS_SKIP_WARNINGS
+  to skip warnings for not detailed enough standard description).
+
+Music_Translate_Fields-L_van_Beethoven.comp: new file; piano sonatas only
+	perl -wle "for (1..32) {{open my $f, qq(> $_)} system qw(mp3info2 -a Beethoven -l), qq(piano sonata No. $_), $_}"
+
+examples/empty.mp3 got a tag accidentally.
+New file examples/empty_10sec.mp3
+  perl -we "print qq(\0) x (8000*2*10)" | lame -b 8 -r -s 8 -m m - empty_10sec.mp3
+	(For experiments with players which only show ID3 when playing.)
+
 Release Name: 0.9706
 =======================
 

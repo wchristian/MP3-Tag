@@ -3,7 +3,7 @@ package MP3::Tag::ParseData;
 use strict;
 use vars qw /$VERSION @ISA/;
 
-$VERSION="0.9706";
+$VERSION="0.9707";
 @ISA = 'MP3::Tag::__hasparent';
 
 =pod
@@ -67,6 +67,11 @@ matched is chosen;
 
 the resulting string is interpolated before parsing.
 
+=item C<b>
+
+Do not strip the leading and trailing blanks.  (With output to file,
+the output is performed in binary mode too.)
+
 =item C<R>
 
 the patterns are considered as regular expressions.
@@ -80,11 +85,6 @@ one of the patterns must match.
 With C<o> or C<O> interpret the pattern as a name of file to output
 parse-data to.  With C<O> the name of output file is interpolated.
 When C<D> is present, intermediate directories are created.
-
-=item C<b>
-
-Do not strip the leading and trailing blanks.  (With output to file,
-the output is performed in binary mode too.)
 
 =item C<z>
 
@@ -125,6 +125,13 @@ parameter C<id3v2_frame_empty_ok> is false (the default value).
 Setting ID3v2 frames uses the same translation rules as
 select_id3v2_frame_by_descr().
 
+=head2 SEE ALSO
+
+The flags C<i f F B l m I b> are identical to flags of the method
+interpolate_with_flags() of MP3::Tag (see L<MP3::Tag/"interpolate_with_flags">).
+Essentially, the other flags (C<R m o O D z>) are applied to the result of
+calling the latter method.
+
 =cut
 
 
@@ -147,44 +154,7 @@ sub parse_one {
     my $flags = shift @patterns;
     my $data  = shift @patterns;
 
-    $data = $self->{parent}->interpolate($data) if $flags =~ /i/;
-    if ($flags =~ /f/) {
-	local *F;
-	my $e;
-	unless (open F, "< $data") {
-	  return if $flags =~ /F/;
-	  die "Can't open file `$data' for parsing: $!";
-	}
-	if ($flags =~ /B/) {
-	  binmode F;
-	} else {
-	  my $e;
-	  if ($e = $self->get_config('decode_encoding_files') and $e->[0]) {
-	    eval "binmode F, ':encoding($e->[0])'"; # old binmode won't compile...
-	  }
-	}
-
-	local $/;
-	my $d = <F>;
-	close F or die "Can't close file `$data' for parsing: $!";
-	$data = $d;
-    }
-    my @data = $data;
-    if ($flags =~ /[ln]/) {
-	my $p = $self->get_config('parse_split')->[0];
-	@data = split $p, $data, -1;
-    }
-    if ($flags =~ /n/) {
-	my $track = $self->{parent}->track or return;
-	@data = $data[$track - 1];
-    }
-    for $data (@data) {
-	$data = $self->{parent}->interpolate($data) if $flags =~ /I/;
-	unless ($flags =~ /b/) {
-	    $data =~ s/^\s+//;
-	    $data =~ s/\s+$//;
-	}
-    }
+    my @data = $self->{parent}->interpolate_with_flags($data, $flags);
     my $res;
     my @opatterns = @patterns;
 

@@ -6,7 +6,7 @@ use MP3::Info;
 $MP3::Info::try_harder = 1;
 
 my (@f,$r);
-$r = shift if @ARGV and $ARGV[0] eq '-r';
+$r = shift if @ARGV and lc $ARGV[0] eq '-r';
 
 die "Usage: $0 [-r] FILENAMES" unless @ARGV;
 if ($r) {

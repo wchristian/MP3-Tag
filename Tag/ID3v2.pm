@@ -12,7 +12,7 @@ use File::Basename;
 
 use vars qw /%format %long_names %res_inp @supported_majors %v2names_to_v3 $VERSION @ISA/;
 
-$VERSION="0.9706";
+$VERSION="0.9707";
 @ISA = 'MP3::Tag::__hasparent';
 
 my $trustencoding = $ENV{MP3TAG_DECODE_UNICODE};
@@ -464,10 +464,11 @@ sub build_tag {
 
 	    # unsync
 	    my $extra = 0;
-	    if ( $self->{version} == 3
-		 and ($self->get_config('id3v23_unsync_size_w'))->[0]
-		 or $self->{version} >= 4 ) {
-		$extra++ while $data =~ /\xFF(?=[\x00\xE0-\xFF])/g;
+	    if ( ($self->get_config('id3v23_unsync'))->[0]
+		 and ($self->{version} == 3
+		      and ($self->get_config('id3v23_unsync_size_w'))->[0]
+		      or $self->{version} >= 4) ) {
+	      $extra++ while $data =~ /\xFF(?=[\x00\xE0-\xFF])/g;
 	    }
 
 	    #prepare header
@@ -745,7 +746,7 @@ sub remove_tag {
 	$mp3obj->close;
 	unless (( rename $tempfile, $mp3obj->{filename})||
 		(system("mv",$tempfile,$mp3obj->{filename})==0)) {
-	    warn "Couldn't rename temporary file $tempfile\n";    
+	    warn "Couldn't rename temporary file $tempfile\n";
 	}
     } else {
 	warn "Couldn't write temp file\n";
@@ -1275,11 +1276,11 @@ be of the form
 
   NAME(langs)[descr]
 
-Both C<(langs)> and C<[descr]) parts may be omitted; I<langs> should
-contain comma-separated list of needed languages; backslashes in
-I<descr> before backslash and brackets (i.e., C<[]>) are stripped.
-frame_select_by_descr() will return a hash if C<(lang> is omited, but
-the frame has a language field.
+Both C<(langs)> and C<[descr]> parts may be omitted; I<langs> should
+contain comma-separated list of needed languages; no protection by
+backslashes is needed in I<descr>.  frame_select_by_descr() will
+return a hash if C<(lang> is omited, but the frame has a language
+field.
 
 =item frame_select_by_descr_simple()
 
@@ -1302,10 +1303,10 @@ sub frames_list {
 sub _frame_select_by_descr {
     my ($self, $what, $d) = (shift, shift, shift);
     my($l, $descr) = ('');
-    if ( $d =~ s/^(\w{4})(?:\(([^)]*)\))?(?:\[((?:\\.|[^]\\])*)\])?$/$1/ ) {
+    if ( $d =~ s/^(\w{4})(?:\(([^)]*)\))?(?:\[(.*)\])?$/$1/ ) {
       $l = defined $2 ? [split /,/, $2, -1] : ($what > 1 && !@_ ? '' : undef);
       $descr = $3;
-      $descr =~ s/\\([\\\[\]])/$1/g if defined $descr;
+      # $descr =~ s/\\([\\\[\]])/$1/g if defined $descr;
     }
     return $self->_frame_select($what, $d, $descr, $l, @_);
 }
