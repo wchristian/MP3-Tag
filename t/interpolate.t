@@ -7,7 +7,7 @@
 # Change 1..1 below to 1..last_test_to_print .
 # (It may become useful if the test is moved to ./t subdirectory.)
 
-BEGIN { $| = 1; print "1..8\n"; $ENV{MP3TAG_SKIP_LOCAL} = 1}
+BEGIN { $| = 1; print "1..23\n"; $ENV{MP3TAG_SKIP_LOCAL} = 1}
 END {print "MP3::Tag not loaded :(\n" unless $loaded;}
 use MP3::Tag;
 $loaded = 1;
@@ -38,6 +38,64 @@ $res = $mp3->interpolate('aa%{I(if)%{!y:xxx%{f||not_present}}}bb');
 ok($res eq 'aacontentbb', "I(fi) interpolates with conditional with choice ");
 $res = $mp3->interpolate('aa%{COMM03:%{I(if)%{!y:xxx%{f||not_present}}}}bb');
 ok($res eq 'aabb', "I(fi) interpolates in conditional");
+
+$res = $mp3->format_time(56345.62, qw(?Hh ?{mL}m {SL} ?{ML}));
+print "# `$res'\n";
+ok($res eq '15h39m05.620', "format time 56345.62");
+$res = $mp3->format_time(56345, qw(?Hh ?{mL}m {SL} ?{ML}));
+print "# `$res'\n";
+ok($res eq '15h39m05', "format time 56345");
+
+$res = $mp3->format_time(2345.62, qw(?Hh ?{mL}m {SL} ?{ML}));
+print "# `$res'\n";
+ok($res eq '39m05.620', "format time 2345.62");
+$res = $mp3->format_time(2345, qw(?Hh ?{mL}m {SL} ?{ML}));
+print "# `$res'\n";
+ok($res eq '39m05', "format time 2345");
+
+$res = $mp3->format_time(5.62, qw(?Hh ?{mL}m {SL} ?{ML}));
+print "# `$res'\n";
+ok($res eq '5.620', "format time 5.62");
+$res = $mp3->format_time(5, qw(?Hh ?{mL}m {SL} ?{ML}));
+print "# `$res'\n";
+ok($res eq '5', "format time 5");
+
+$res = $mp3->format_time(56345.62, qw(?Hh ?{mL}m {SML}s));
+print "# `$res'\n";
+ok($res eq '15h39m05.62s', "format time 56345.62");
+$res = $mp3->format_time(56345, qw(?Hh ?{mL}m {SML}s));
+print "# `$res'\n";
+ok($res eq '15h39m05s', "format time 56345");
+
+$res = $mp3->format_time(2345.62, qw(?Hh ?{mL}m {SML}s));
+print "# `$res'\n";
+ok($res eq '39m05.62s', "format time 2345.62");
+$res = $mp3->format_time(2345, qw(?Hh ?{mL}m {SML}s));
+print "# `$res'\n";
+ok($res eq '39m05s', "format time 2345");
+
+$res = $mp3->format_time(5.62, qw(?Hh ?{mL}m {SML}s));
+print "# `$res'\n";
+ok($res eq '5.62s', "format time 5.62");
+$res = $mp3->format_time(5, qw(?Hh ?{mL}m {SML}s));
+print "# `$res'\n";
+ok($res eq '5s', "format time 5");
+
+$res = MP3::Tag->format_time(5.62, qw(?Hh ?{mL}m {SML}s));
+print "# `$res'\n";
+ok($res eq '5.62s', "format time 5.62");
+
+{ my $f = MP3::Tag->new_fake;
+  $res = $f->format_time(5.62, qw(?Hh ?{mL}m {SML}s));
+  print "# `$res'\n";
+  ok($res eq '5.62s', "format time 5.62");
+}
+
+{ local $mp3->{ms} = 2345.62 * 1000;	# Pretend the length is as given
+  $res = $mp3->interpolate("%{T[?Hh,?{mL}m,{SML}s]}");
+  print "# `$res'\n";
+  ok($res eq '39m05.62s', "format time 2345.62");
+}
 
 my @failed;
 #@failed ? die "Tests @failed failed.\n" : print "All tests successful.\n";

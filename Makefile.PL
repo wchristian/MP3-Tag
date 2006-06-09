@@ -2,7 +2,7 @@ use ExtUtils::MakeMaker;
 use Config;
 use strict;
 
-my @programs_to_install = qw(mp3info2 typeset_audio_dir);
+my @programs_to_install = qw(mp3info2 typeset_audio_dir audio_rename);
 my $install_bin = 1;
 
 if ( grep $_ eq '-n', @ARGV

@@ -12,7 +12,7 @@ use File::Basename;
 
 use vars qw /%format %long_names %res_inp @supported_majors %v2names_to_v3 $VERSION @ISA/;
 
-$VERSION="0.9707";
+$VERSION="0.9708";
 @ISA = 'MP3::Tag::__hasparent';
 
 my $trustencoding = $ENV{MP3TAG_DECODE_UNICODE};
@@ -357,6 +357,35 @@ sub get_frame {
 }
 
 *getFrame= \&get_frame;
+
+sub get_frame_descr {
+    my ($self, $fname)=@_;
+    (undef, my $frame) = $self->get_frames($fname); # Ignore the rest
+    return unless defined $frame;
+    return $fname unless ref $frame;
+    my $k = scalar keys %$frame;
+    return $fname unless $k <= 4; # encoding, Language, Description + 1
+    $k-- if exists $frame->{encoding};
+    return $fname unless $k <= 3;
+    my $l = delete $frame->{Language};
+    $k-- if defined $l;
+    return $fname unless $k <= 2;
+    my $d = delete $frame->{Description};
+    $k-- if defined $d;
+    return $fname unless $k <= 1;
+    $fname =~ s/^(\w{4})\d{2}/$1/;
+    $l = "($l)" if defined $l;
+    $d = "[$d]" if defined $d;
+    $l ||= '';
+    $d ||= '';
+    return "$fname$l$d";
+}
+
+sub get_frame_descriptors {
+  my $self = shift;
+  my $h = $self->get_frame_ids();
+  map $self->get_frame_descr($_), keys %$h;
+}
 
 
 =pod
@@ -761,13 +790,12 @@ sub remove_tag {
 
   $fn = $id3v2->add_frame($fname, @data);
 
-Add a new frame, identified by the short name $fname. 
+Add a new frame, identified by the short name $fname.
 The number of elements of array @data should be as described
 in the ID3v2.3 standard.  (See also L<MP3::Tag::ID3v2-Data>.)
 There are two exceptions: if @data is empty,
 it is filled with necessary number of  C<"">); if one of required elements
 is encoding, it may be omitted (meaning latin1 encoding, or C<0>).
-(Any other encoding is not supported yet, and thus ignored.)
 
 It returns the the short name $fn, which can differ from
 $fname, when there existed already such a frame. If no
@@ -1111,14 +1139,19 @@ sub _comment {
    $val = $id3v2->comment();
    $newframe = $id3v2->comment('Just a comment for freddy', 'personal', 'eng');
 
-Returns the file comment (COMM frame with an empty 'Description' field) from the
-tag, or "Subtitle/Description refinement" (TIT3) frame (unless it is considered
-a part of the title).
+Returns the file comment (COMM frame with the 'Description' field in
+C<default_descr_c> configuration variable, defalting to C<''>) from
+the tag, or "Subtitle/Description refinement" (TIT3) frame (unless it
+is considered a part of the title).
 
-If optional arguments ($comment, $short, $language) are present, sets the
-comment frame.  If $language is omited, uses C<XXX> (otherwise it should
-be lowercase 3-letter abbreviation according to ISO-639-2); if $short is
-omited, sets to C<''>.  If $comment is an empty string, the frame is removed.
+If optional arguments ($comment, $short, $language) are present, sets
+the comment frame.  If $language is omited, uses the
+C<default_language> configuration variable (default is C<XXX>).  If not
+C<XXX>, this should be lowercase 3-letter abbreviation according to
+ISO-639-2).
+
+If $short is not defined, uses the C<default_descr_c> configuration
+variable.  If $comment is an empty string, the frame is removed.
 
 =cut
 
@@ -1126,12 +1159,14 @@ sub comment {
     my $self = shift;
     my ($comment, $short, $language) = @_  or return $self->_comment();
     my @info = get_frames($self, "COMM");
+    my $desc = ($self->get_config('default_descr_c'))->[0];
     shift @info;
     my $c = -1;
     for my $comment (@info) {
 	++$c;
 	next unless defined $comment; # Removed frames
-	next unless exists $comment->{Description} and not length $comment->{Description};
+	next unless exists $comment->{Description}
+	  and $comment->{Description} eq $desc;
 	next if defined $language and (not exists $comment->{Language}
 				       or lc $comment->{Language} ne lc $language);
 	$self->remove_frame($c ? sprintf 'COMM%02d', $c : 'COMM');
@@ -1139,8 +1174,9 @@ sub comment {
 	last;
     }
     return if @_ == 1 and $_[0] eq '';
-    $language = 'XXX' unless defined $language;
-    $short = ''       unless defined $short;
+    $language = ($self->get_config('default_language'))->[0]
+      unless defined $language;
+    $short = $desc       unless defined $short;
     $self->add_frame('COMM', $language, $short, $comment);
 }
 
@@ -1169,8 +1205,11 @@ NUMBER's frame with frame name $fname.
 If optional argument $newtext is given, all the found frames are
 removed; if $newtext is defined, a new frame is created (the first
 elements of $descrs and $languages are used as the short description
-and the language, default to C<''> and C<XXX>); its name is returned;
-otherwise the count of removed frames is returned.
+and the language, default to C<''> and the C<default_language>
+configuration variable (defaults to C<XXX>; if not C<XXX>, this should
+be lowercase 3-letter abbreviation according to ISO-639-2).  If new
+frame is created, the frame's name is returned; otherwise the count of
+removed frames is returned.
 
 =cut
 
@@ -1204,7 +1243,7 @@ sub _frame_select {
 		    $c++;
 		    push(@by_lang, [$c, $f])	# May create duplicates
 			if defined $f and (ref $f and defined $f->{Language}
-					   and $l eq __to_lang $f->{Language} 
+					   and $l eq __to_lang $f->{Language}
 					   or $l eq '');
 		}
 	    }
@@ -1241,7 +1280,8 @@ sub _frame_select {
 	$self->remove_frame($c ? sprintf('%s%02d', $fname, $c) : $fname);
     }
     return scalar @select unless defined $newcontent;
-    $languages = ['XXX'] unless defined $languages;
+    $languages = [($self->get_config('default_language'))->[0]]
+      unless defined $languages;
     my $format = get_format($fname);
     my $have_lang = grep $_->{name} eq 'Language', @$format;
     $#$languages = $have_lang - 1; # Truncate
@@ -1917,8 +1957,8 @@ sub DESTROY {
 #                      this data as argument and has to return some data, which is then returned
 #                      a result of this part
 #          * isnum=1 - indicator that field stores a number as binary number
-#          * re2     - hash with information for a replace: s/key/value/ 
-#                      This is used after a call of func 
+#          * re2     - hash with information for a replace: s/key/value/
+#                      This is used after a call of func
 #          * data=1  - indicator that this part contains binary data
 #          * default - default value, if data contains no information
 #
@@ -1979,7 +2019,7 @@ sub PIC {
 	# ID3v2.2 stores only 3 character Image format for pictures
 	# and not mime type: Convert image format to mime type
 	my $data = shift;
-	
+
 	if (defined shift) { # called by what_data
 		my %ret={};
 		return \%ret;
@@ -2103,7 +2143,7 @@ sub TMED {
 BEGIN {
 	# ID3v2.2, v2.3 are supported, v2.4 is very compatible...
 	@supported_majors=(0,0,1,1,1);
-	
+
 	my $encoding    ={len=>1, name=>"_encoding", data=>1};
 	my $text_enc    ={len=>-1, name=>"Text", encoded=>1};
 	my $text        ={len=>-1, name=>"Text"};
@@ -2225,7 +2265,7 @@ BEGIN {
 		   SYTC => [{len=>1, name=>"Time Stamp Format", isnum=>1}, $data],
 		   #SYLT => [],
 		   T    => [$encoding, $text_enc],
-		   TCON => [$encoding, {%$text_enc, func=>\&TCON, re2=>{'\(RX\)'=>'Remix', '\(CR\)'=>'Cover'}}], 
+		   TCON => [$encoding, {%$text_enc, func=>\&TCON, re2=>{'\(RX\)'=>'Remix', '\(CR\)'=>'Cover'}}],
 		   TCOP => [$encoding, {%$text_enc, re2 => {'^'=>'(C) '}}],
 		   # TDRC => [$encoding, $text_enc, data => 1],
 		   TFLT => [$encoding, {%$text_enc, func=>\&TFLT}],

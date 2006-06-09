@@ -9,7 +9,7 @@ package MP3::Tag::ID3v1;
 use strict;
 use vars qw /@mp3_genres @winamp_genres $AUTOLOAD %ok_length $VERSION @ISA/;
 
-$VERSION="0.9707";
+$VERSION="0.9708";
 @ISA = 'MP3::Tag::__hasparent';
 
 # allowed fields in ID3v1.1 and max length of this fields (except for track and genre which are coded later)
@@ -189,13 +189,27 @@ sub fits_tag {
     if (defined (my $track = $hash->{track})) {
       return unless $track =~ /^\d{0,3}$/ and $track < 256;
     }
+    my $s = '';
     for $elt (qw(title artist album comment year)) {
 	next unless defined (my $data = $hash->{$elt});
 	$data = $data->[0] if ref $data;
 	return if $data =~ /[^\x00-\xFF]/;
+	$s .= $data;
 	next if $ok_length{$elt} >= length $data;
-	next if $elt eq 'comment' and not $hash->{track} and length $data <= 30;
+	next
+	  if $elt eq 'comment' and not $hash->{track} and length $data <= 30;
 	return;
+    }
+    if ($s =~ /[^\x00-\x7E]/) {
+      my $w = ($self->get_config('encode_encoding_v1') || [0])->[0];
+      my $r = ($self->get_config('decode_encoding_v1') || [0])->[0];
+      $_ = (lc or 'iso-8859-1') for $r, $w;
+      # Safe: per-standard and read+write is idempotent:
+      return 1 if $r eq $w and $w eq 'iso-8859-1';
+      return !(($self->get_config('encoded_v1_fits')||[0])->[0])
+	if $w eq 'iso-8859-1';	# read+write not idempotent
+      return if $w ne $r
+	  and not ($self->get_config('encoded_v1_fits')||[0])->[0];
     }
     return 1;
 }

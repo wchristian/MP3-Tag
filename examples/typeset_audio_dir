@@ -1,6 +1,6 @@
 #!/usr/bin/perl -w
 
-$VERSION = 0.02;
+$VERSION = 0.03;
 
 use strict;
 use MP3::Tag;
@@ -326,8 +326,6 @@ my $common1 = <<'EOP';
 \def\precomment{ \bgroup\it}
 \def\postcomment{\egroup}
 \def\pretrack#1\posttrack{#1.\hbox{~}}	% Not expandable
-\def\hasUnsyncLyrics{\textcircled{\textsc{L}}}
-\def\hasSyncLyrics{\textcircled{\textsc{S}}}
 %\def\preyear{ \hfil\hbox{}\hskip0pt\hbox{}\nobreak\hskip0pt plus 1fill\nobreak[}
 %%\def\preyear{\unskip\nobreak\hfil\penalty50\hskip0.75em\hbox{}\nobreak\hfill[}
 %\def\postyear{]}
@@ -369,7 +367,22 @@ my $common1 = <<'EOP';
 
 EOP
 
-my $cdcover_on = <<'EOP'; 
+if ($opt{L}) {
+  $common1 .= <<'EOP';
+
+\def\hasUnsyncLyrics{\textcircled{\textsc{L}}}
+\def\hasSyncLyrics{\textcircled{\textsc{S}}}
+\def\reportLyricsSyntax{{\tiny\hasUnsyncLyrics/\hasSyncLyrics\quad---\quad
+  has (un)syncronized lyrics\par}}
+EOP
+} else {
+  $common1 .= <<'EOP';
+
+\def\reportLyricsSyntax{}
+EOP
+}
+
+my $cdcover_on = <<'EOP';
 \begin{bookletsheets}
 %\begin{bookletsheetsTwo}
 %\begin{singlesheet}{Title}{Slip text}
@@ -651,6 +664,7 @@ EOP
 
 print $out_envelop_cdcover <<'EOP' if $opt{B} and defined $out_envelop_cdcover;
 %\end{multicols}
+\reportLyricsSyntax
 \end{bookletsheets}
 %\end{bookletsheetsTwo}
 %\end{singlesheet}
@@ -666,6 +680,8 @@ print $out_envelop_backcover <<'EOP' if defined $out_envelop_backcover;
 \begin{center}
 {\bf \small \totalDuration\today}
 \end{center}
+
+\reportLyricsSyntax
 
 %\vfill\vfil
 
@@ -693,6 +709,8 @@ print $out_envelop_12cm <<'EOP', $optional_cont if defined $out_envelop_12cm;
 \begin{center}
 {\bf \small \totalDuration\today}
 \end{center}
+
+\reportLyricsSyntax
 
 EOP
 
@@ -736,6 +754,7 @@ if ($opt{T}) {
 print $out_envelop_cdcover <<'EOP' if defined $out_envelop_cdcover;
 
 %\end{multicols}
+\reportLyricsSyntax
 \end{bookletsheets}
 %\end{bookletsheetsTwo}
 %\end{singlesheet}

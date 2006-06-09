@@ -15,12 +15,16 @@ cddb.tmp
 cddb.tm
 data_pod.PL
 examples/README.txt
-examples/audio_rename.pl
+examples/audio_rename
 examples/mod/Music_Translate_Fields.pm
 examples/mod/Music_Translate_Fields.lst
 examples/mod/Music_Translate_Fields-rus.lst
 examples/mod/Music_Translate_Fields-L_van_Beethoven.comp
+examples/mod/Music_Translate_Fields-G_Gershwin.comp
+examples/Music_Translate_Fields-normalize.pl
 examples/mod/transliterate_win1251.pm
+examples/mod/src/HOWTO
+examples/mod/src/Beethoven.all_y 
 examples/empty.mp3
 examples/extractID3v2.pl
 examples/mp3info.pl
@@ -33,6 +37,8 @@ examples/eat_wav_mp3_header.pl
 examples/fetch_composer_wiki.pl
 examples/fetch_composer_codm.pl
 examples/empty_10sec.mp3
+examples/extract-y.pl
+examples/Music_Translate_Fields-normalize.pl
 test.mp3
 t/mp3tag.t
 t/set_v2.t

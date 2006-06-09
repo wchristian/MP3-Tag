@@ -1,3 +1,48 @@
+Release Name: 0.9708
+=======================
+
+Allow character devices for files (so /dev/null now "works"
+  mp3info2 -D -a beethoven -t "piano in F#" /dev/null
+).
+
+total_secs_trunc() was not documented.
+
+New methods total_hours(), leftover_secs_float(), leftover_secs_trunc(),
+leftover_mins().  Interpolated as %H, %{SML}, %{SL}, %{mL}.  Interpolate
+leftover_msec() as %{ML}.  New method format_time().  New interpolated
+%{T[format1,format2...]}.  New class method new_fake().
+'update_length' config variable was not writable.  New method
+id3v2_frame_descriptors().
+			XXXX Undocumented...
+
+ID3v1: support new option encoded_v1_fits (default NOT as it was).
+
+ID3v2: add_frame() was not documented to support encoding.  New configuration
+variables default_language, default_descr_c.  New functions get_frame_desc(),
+get_frame_descriptors().
+
+Music_Translate_Fields: normalizes title from unambiguous short form (order
+significant, so "piano sonata" and "sonata for piano" still not synonimous).
+Allow #dup_opus_rex, #no_opus_no, #prev_short in composer table.
+New function normalize_file_lines().
+
+Table of names for Beethoven expanded to include all the Op/WoO works;
+dates are extracted from 3 sources.  Table for Gershwin.
+
+New file examples/Music_Translate_Fields-normalize.pl.
+
+mp3info2: processing of the first part of -E was completely wrong; only one
+option could have been \\-interpolated.  New syntax -E +something to add to
+the defaults.  New option -x (modelled after mp3info, plus frame descriptors).
+If file name is empty, will work with a fake tag object.  Print (guessed)
+composer and orchestra fields too.
+
+audio_rename: increase the length of -s to 110 (len controlled by environment
+variable).  Add .tag .mp3 to -e.
+Add documentation.  New option -r.  Now is installed.
+
+typeset_audio_dir: now explains the meaning of (L) and (S).
+
 Release Name: 0.9707
 =======================
 
@@ -79,6 +124,9 @@ examples/empty.mp3 got a tag accidentally.
 New file examples/empty_10sec.mp3
   perl -we "print qq(\0) x (8000*2*10)" | lame -b 8 -r -s 8 -m m - empty_10sec.mp3
 	(For experiments with players which only show ID3 when playing.)
+
+If INSTALLSCRIPT is present in Makefile.PL options, LIB will not disable
+installation of scripts.
 
 Release Name: 0.9706
 =======================

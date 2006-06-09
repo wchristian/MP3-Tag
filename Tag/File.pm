@@ -5,7 +5,7 @@ use Fcntl;
 use File::Basename;
 use vars qw /$VERSION @ISA/;
 
-$VERSION="0.9706";
+$VERSION="0.9708";
 @ISA = 'MP3::Tag::__hasparent';
 
 =pod
@@ -39,7 +39,7 @@ the filename() method.
 
 sub new_with_parent {
     my ($class, $filename, $parent) = @_;
-    return undef unless -f $filename;
+    return undef unless -f $filename or -c $filename;
     return bless {filename => $filename, parent => $parent}, $class;
 }
 *new = \&new_with_parent;	# Obsolete handler

@@ -158,6 +158,34 @@ sub short_person ($$) {
 
 my %comp;
 
+sub normalize_file_lines ($$) {	# Normalizing speeds up load_composer()
+  my ($self, $fn) = @_;
+  open my $f, '<', $fn or die "Can't open file $fn for read";
+  local $_;
+  print "# normalized\n";
+  while (<$f>) {
+    chomp;
+    $_ = normalize_piece($self, $_) unless /^\s*#/;
+    print "$_\n";
+  }
+  close $f or die "Can't close file $fn for read";
+}
+
+sub _significant ($$$) {
+  my ($tbl, $l, $r) = (shift, shift, shift);
+  my ($pre, $opus);
+  if ($tbl->{no_opus_no}) {	# Remove year-like comment
+    ($pre) = ($l =~ /^(.*\S)\s*\(\d{4}\b[^()]*\)$/s);
+  } else {
+    ($pre, $opus) = ($l =~ /$r/);
+  }
+  $pre = $l unless $pre;
+  my ($significant) = ($pre =~ /^(.*?\bNo[.]?\s*\d+)/is);
+  ($significant) = ($pre =~ /^(.*?);/s) unless $significant;
+  ($significant) = $pre unless $significant;
+  (lc $significant, $opus);
+}
+
 sub load_composer ($$) {
   my ($self, $c) = @_;
   eval {$c = $self->shorten_person($c)};
@@ -166,48 +194,78 @@ sub load_composer ($$) {
   $c =~ s/[^-\w]/_/g;
   $c =~ s/__/_/g;
   # XXX See Wikipedia "Opus number" for more compilete logic
-  $comp{$ini}{opus_rx} = qr/\bOp\.\s*\d+[a-d]?(?:[.,;\s]\s*No\.\s*\d+)?/;
+  $comp{$ini}{opus_rx} = qr/\b(?:Op\.|WoO)\s*\d+[a-d]?(?:[.,;\s]\s*No\.\s*\d+(?:\.\d+)*)?/;
   my $f = $INC{'Music_Translate_Fields.pm'};
   warn("panic: can't find myself"), return 0 unless -r $f;
   $f =~ s/\.pm$/-$c.comp/i
     or warn("panic: can't translate `$f' to -$c.comp"), return 0;
   return $comp{$ini} unless -r $f;
-  my @works;
+  my $tbl = $comp{$ini};
+  my (@works, $normalized);
   open COMP, "< $f" or die "Can't read $f: $!";
+  my $last;
+  my %short;
   for my $l (<COMP>) {
-    if ($l =~ /^#\s+opus_rex\s(.*?)\s*$/) {
-      $comp{$ini}{opus_rx} = $1;
+    next if $l =~ /^\s*(?:##|$)/;
+    if ($l =~ /^#\s*normalized\s*$/) {
+      $normalized++;		# Very significant optimization
+    } elsif ($l =~ /^#\s*opus_rex\s(.*?)\s*$/) {
+      $tbl->{opus_rx} = qr/$1/;
+    } elsif ($l =~ /^#\s*dup_opus_rex\s(.*?)\s*$/) {
+      $tbl->{dup_opus_rx} = qr/$1/;
+    } elsif ($l =~ /^#\s*no_opus_no\s*$/) {
+      $tbl->{no_opus_no} = 1;
+    } elsif ($l =~ /^#\s*prev_short\s+(.*?)\s*$/) {
+      $short{$1} = $last;
     } elsif ($l =~ /^#[^#]/) {
       warn "Unrecognized line of `$f': $l"
-    } elsif ($l !~ /^##/) {
-      $l = normalize_piece($self, $l); # Recursive call to ourselves...
+    } elsif ($l !~ /^##/) { 	# Recursive call to ourselves...
+      if ($normalized) {
+	$l =~ s/\s*$//;		# chomp...
+      } else {
+	$l = normalize_piece($self, $l);
+      }
+      $last = $l;
       push @works, $l;
     }
   }
   close COMP or die "Error reading $f: $!";
   return unless @works;
-  my $r = qr/^(.*?($comp{$ini}{opus_rx}))/s;
+  # Piano Trio No. 8 (Arrangement of the Septet; Op. 20)); Op. 38 (1820--1823)
+  # so can't m/.*?/
+  my $r = qr/^(.*($tbl->{opus_rx}))/s;
   # Name "as in Wikipedia:Naming conventions (pieces of music)"
-  my (%opus, %name);
+  my (%opus, %name, %dup, %dupop);
   for my $l (@works) {
-    my ($pre, $opus) = ($l =~ /$r/);
-    $pre = $l unless $opus;
-    my ($significant) = ($pre =~ /^(.*?\bNo[.]?\s*\d+)/is);
-    ($significant) = ($pre =~ /^(.*?);/s) || $pre unless $significant;
-    ($significant) = $pre unless $significant;
-    $significant = lc $significant;
-    warn "Duplicate name `$significant'"
-      if $significant and $name{$significant};
+    my ($significant, $opus) = _significant($tbl, $l, $r);
+    if ($significant and $name{$significant}) {
+      $dup{$significant}++;
+      warn "Duplicate name `$significant': <$l> <$name{$significant}>"
+	if $ENV{MUSIC_DEBUG_TABLE};
+    }
     $name{$significant} = $l if $significant;
     $opus or next;
     $opus = lc $opus;
-    warn "Duplicate opus number `$opus'" if $opus{$opus};
+    if ($opus{$opus}) {
+      $dupop{$opus}++;
+      warn "Duplicate opus number `$opus': <$l> <$opus{$opus}>"
+	unless $tbl->{dup_opus_rx} && $opus =~ /$tbl->{dup_opus_rx}/;
+    }
     $opus{$opus} = $l;
   }
-  $comp{$ini}{works} = \@works;
-  $comp{$ini}{opus} = \%opus if %opus;
-  $comp{$ini}{name} = \%name if %name;
-  $comp{$ini};
+  delete $name{$_} for keys %dup;
+  delete $opus{$_} for keys %dupop;
+  for my $s (keys %short) {
+    my ($n) = _significant($tbl, $s, $r);
+    warn "Duplicate and/or unnecessary short name `$s' for <$short{$s}>"
+      if $name{$n};
+    $name{$n} = $short{$s};
+    $name{"\0$s"} = "\0$n";	# put into values(), see translate_person()
+  }
+  $tbl->{works} = \@works;
+  $tbl->{opus} = \%opus if %opus;
+  $tbl->{name} = \%name if %name;
+  $tbl;
 }
 
 sub translate_signature ($$$$) { # One should be able to override this
@@ -231,27 +289,34 @@ sub normalize_signature ($$$$) {
   $alteration =~ s/(\w+)/ $alteration{$1} || $1 /e;
   $mod =~ s/^-?\s*/ / if $mod;		# E-flat, Cb
   $mod = lc $mod;
-  $mod =~ s/(\w+)/ $mod{$1} || $1 /e;
+  $mod =~ s/(\w+|#)/ $mod{$1} || $1 /e;
   $key = uc $key;
   $key = $key{$key} || $key;
   &$Music_Translate_Fields::translate_signature($self,$key,$mod,$alteration);
 }
 
+# All these should match in
+# mp3info2 -D -a beethoven -t "# 28" "/dev/nul"
+#  (should give the same results): "wind in C" "tattoo" "WoO 20"
+# "sonata in F#" "piano in F#" "op78" "Op. 10-2" "Op. 10, #2" "sonata #22"
+
 sub normalize_piece ($$) {
   my ($self, $n) = (shift, shift);
   my $ini_n = $n;
   $n = $n->[0] if ref $n;		# [value, handler]
+  return $ini_n unless $n;
   $n =~ s/^\s+//;
   $n =~ s/\s+$//;
+  return $ini_n unless $n;
   $n =~ s/\s{2,}/ /g;
-  $n =~ s/\bOp(us\s+(?=\d)|[.\s]\s*|\.?(?=\d))/Op. /gi;
-  $n =~ s/\bN[or]([.\s]\s*|.?(?=\d))/No. /gi;	# nr12
-  $n =~ s/(\W)#\s*(?=\d)/${1}No. /gi;	# #12
+  $n =~ s/\bOp(us\s+(?=\d)|[.\s]\s*|\.?(?=\d))/Op. /gi;	# XXXX posth.???
+  $n =~ s/\bN(?:[or]|(?=\d))\.?\s*(?=\d)/No. /gi; # nr12 n12
+  $n =~ s/(\W|^)[#\x{2116}]\s*(?=\d)/${1}No. /gi;	# #12, Numero Sign 12
   # XXXX Is this `?' for good?
-  $n =~ s/[.,;]?\s*(Op\.|WoO\b)/; $1/gi; # punctuation before Op.
+  $n =~ s/(?<=[^(])[.,;]?\s*(Op\.|WoO\b)/; $1/gi; # punctuation before Op.
   # punctuation between Op. and No (as in Wikipedia for most expanded listing)
-  $n =~ s/\b(Op\.\s+\d+[a-d]?)(?:[,;.]?|\s)\s*(?=No\.\s*\d+)/$1, /gi;
-  # Tricky part: normalize case "In b#"
+  $n =~ s/\b((Op\.|WoO)\s+\d+[a-d]?)(?:[,;.]?|\s)\s*(?=No\.\s*\d+)/$1, /gi;
+  # Tricky part: normalize "In b#"
   $n =~ s/\bin\s+([a-h])(\s*[b#]|(?:\s+|-)(?:flat|sharp)|[ie]s|)((?:(?:\s+|-)(?:major|minor|dur|moll))?)(?=\s*[;"]|$)/
     "in " . normalize_signature($self,$1,$2,$3)/ie;
   my $c = eval {$self->composer} || $self->artist;
@@ -264,30 +329,69 @@ sub normalize_piece ($$) {
     $n =~ s/\b(Op\.\s+\d+[a-d]?)[-\/](\d+[a-d]?)/$1, No. $2/i
       if $o and not $no and $o !~ /^$tbl->{opus_rx}$/;
     $tbl->{works} or last;
-    # XXX See Wikipedia "Opus number" for more compilete logic
+    # XXX See Wikipedia "Opus number" for more complete logic
     my ($opus) = ($n =~ /($tbl->{opus_rx})/);
     if ($opus) {
       $canon = $tbl->{opus}{lc $opus} or last;
     } else {
-      my ($significant) = ($n =~ /^(.*?\bNo[.]?\s*\d+)/i);
+      my ($significant, $pre, $no, $post) =
+	($n =~ /^((.*?)\bNo\b[.]?\s*(\d+(?:\.\d+)*))\s*(.*)/is);
       ($significant) = ($n =~ /^(.*?);/s) unless $significant;
       $significant ||= $n;
-      $canon = $tbl->{name}{lc $significant} or last;
+      $canon = $tbl->{name}{lc $significant}; # Try exact match
+      if (not $canon) {	# Try harder: partial match
+	my ($ton, $rx_pre, $rx_post) = ('') x 3;
+	my $nn = $n;
+	if ($nn =~ s/\b(in\s+[A-H](?:\s+(?:flat|sharp))?\s+(?:minor|major))\b//) {
+	  $ton = $1;
+	  ($significant, $pre, $no, $post) = # Redo with $nn
+	    ($nn =~ /^((.*?)\bNo\b[.]?\s*(\d+(?:\.\d+)*))\s*(.*)/is);
+	  $ton = '.*\b' . (quotemeta $ton) . '\b';
+	  ($significant) = ($nn =~ /^(.*?);/s) unless $significant;
+	  $significant ||= $nn;
+	}
+	$pre = $significant unless defined $pre;
+	# my @parts2 = split '\W+', $post;
+	if ($pre and $pre =~ /\w/) {
+	  $rx_pre = '\b' . join('\b.*\b', split /\W+/, $pre) . '\b';
+	}
+	if ($post and $post =~ /\w/) {
+	  $rx_post = '.*' . join '\b.*\b', split /\W+/, $post;
+	}
+	# warn "<$no> <$n> <$nn> <$ton> <$rx_pre> <$rx_post>";
+	$no = '.*\bNo\.\s*' . (quotemeta $no) . '\b(?!\.\d)' if $no;
+	last unless "$rx_pre$no$ton$rx_post";
+	my $sep = $tbl->{no_opus_no} ? '' : '.*;';
+	my $rx = qr/$rx_pre$no$ton$rx_post$sep/is;
+	my @matches = grep /$rx/, values %{$tbl->{name}};
+	if (@matches == 1) {
+	  $canon = $matches[0];
+	} elsif (!@matches) {
+	  last;
+	} else {	# Many matches; check that the shortest is substr
+	  my ($l, $s, $diff) = 1e100;
+	  $l > length and ($s = $_, $l = length) for @matches;
+	  $s eq substr $_, 0, $l or ($diff = 1, last) for @matches;
+	  last if $diff;
+	  $canon = $s;
+	}
+	$canon = $tbl->{name}{$canon} if $canon =~ s/^\0//s; # short name
+      }
     }
-    if ($canon) {
-      my (%w, %w1);
-      for my $w (split /[-.,;\s]+/, $canon) {
-	$w{lc $w}++;
-      }
-      for my $w (split /[-.,;\s]+/, $n) {
-	$w1{lc $w}++ unless $w{lc $w};
-      }
-      if (%w1) {
-	warn "Unknown words in title: `", join("` '", sort keys %w1), "'"
-	  unless $ENV{MUSIC_TRANSLATE_FIELDS_SKIP_WARNINGS};
-	last
-      }
-    }
+#    if ($canon) {
+#      my (%w, %w1);
+#      for my $w (split /[-.,;\s]+/, $canon) {
+#	$w{lc $w}++;
+#      }
+#      for my $w (split /[-.,;\s]+/, $n) {
+#	$w1{lc $w}++ unless $w{lc $w};
+#      }
+#      if (%w1) {
+#	warn "Unknown words in title: `", join("` '", sort keys %w1), "'"
+#	  unless $ENV{MUSIC_TRANSLATE_FIELDS_SKIP_WARNINGS};
+#	last
+#      }
+#    }
     $n = $canon;		# XXXX Simple try (need to compare word-for-word)
   }
   return ref $ini_n ? [$n, $ini_n->[1]] : $n;

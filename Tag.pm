@@ -38,37 +38,43 @@ use MP3::Tag::ParseData;
 use MP3::Tag::LastResort;
 
 use vars qw/$VERSION @ISA/;
-$VERSION="0.9707";
+$VERSION="0.9708";
 @ISA = qw( MP3::Tag::User MP3::Tag::Site MP3::Tag::Vendor
 	   MP3::Tag::Implemenation ); # Make overridable
 *config = \%MP3::Tag::Implemenation::config;
 
 package MP3::Tag::Implemenation;
 use vars qw/%config/;
-%config = ( autoinfo	=> [qw(ParseData ID3v2 ID3v1 CDDB_File Inf filename LastResort)],
-	    cddb_files	=> [qw(audio.cddb cddb.out cddb.in)],
-	    v2title	=> [qw(TIT1 TIT2 TIT3)],
-	    composer	=> ['TCOM|a'],
-	    performer	=> ['TXXX[TPE1]|TPE1|a'],
-	    extension	=> ['\.(?!\d+\b)\w{1,4}$'],
-	    parse_data	=> [],
-	    parse_split	=> ["\n"],
-	    parse_filename_ignore_case => [1],
-	    parse_filename_merge_dots => [1],
-	    parse_join	=> ['; '],
-	    year_is_timestamp	=> [1],
-	    comment_remove_date	=> [0],
-	    id3v2_frame_empty_ok	=> [0],
-	    id3v2_minpadding	=> [128],
-	    id3v2_sizemult	=> [512],
-	    id3v2_shrink	=> [0],
-	    id3v2_mergepadding  => [0],
-	    id3v23_unsync_size_w => [0],
-	    id3v23_unsync => [1],
-	    parse_minmatch => [0],
-	    update_length => [1],
-	    person_frames => [qw{ TEXT TCOM TXXX[TPE1] TPE1 TPE3 TOPE TOLY
-				  TMCL TIPL TENC TXXX[person-file-by] }],
+%config = ( autoinfo			  => [qw( ParseData ID3v2 ID3v1
+						 CDDB_File Inf filename
+						 LastResort )],
+	    cddb_files			  => [qw(audio.cddb cddb.out cddb.in)],
+	    v2title			  => [qw(TIT1 TIT2 TIT3)],
+	    composer			  => ['TCOM|a'],
+	    performer			  => ['TXXX[TPE1]|TPE1|a'],
+	    extension			  => ['\.(?!\d+\b)\w{1,4}$'],
+	    parse_data			  => [],
+	    parse_split			  => ["\n"],
+	    encoded_v1_fits		  => [0],
+	    parse_filename_ignore_case	  => [1],
+	    parse_filename_merge_dots	  => [1],
+	    parse_join			  => ['; '],
+	    year_is_timestamp		  => [1],
+	    comment_remove_date		  => [0],
+	    id3v2_frame_empty_ok	  => [0],
+	    id3v2_minpadding		  => [128],
+	    id3v2_sizemult		  => [512],
+	    id3v2_shrink		  => [0],
+	    id3v2_mergepadding		  => [0],
+	    id3v23_unsync_size_w	  => [0],
+	    id3v23_unsync		  => [1],
+	    parse_minmatch		  => [0],
+	    update_length		  => [1],
+	    default_language		  => ['XXX'],
+	    default_descr_c		  => [''],
+	    person_frames		  => [qw{ TEXT TCOM TXXX[TPE1] TPE1
+						 TPE3 TOPE TOLY TMCL TIPL TENC
+						 TXXX[person-file-by] }],
 	  );
 {
   my %e;
@@ -167,16 +173,16 @@ sub new {
     my $self = {};
     bless $self, $class;
     my $proxy = MP3::Tag::__proxy->new($self);
-    if (-f $filename) {
+    if (-f $filename or -c $filename) {
 	$mp3data = MP3::Tag::File->new_with_parent($filename, $proxy);
     }
     # later it should hopefully possible to support also http/ftp sources
     # with a MP3::Tag::Net module or something like that
     if ($mp3data) {
-	%$self = (filename=>$mp3data,
-		  ofilename => $filename,
-		  abs_filename => File::Spec->rel2abs($filename),
-		  __proxy => $proxy);
+	%$self = (filename	=> $mp3data,
+		  ofilename	=> $filename,
+		  abs_filename	=> File::Spec->rel2abs($filename),
+		  __proxy	=> $proxy);
 	return $self;
     }
     return undef;
@@ -257,6 +263,28 @@ sub _get_tag {
 
 # keep old name for a while
 *getTags = \&get_tags;
+
+=item new_fake
+
+  $obj = MP3::Tag->new_fake();
+
+This method produces a "fake" MP3::Tag object which behaves as an MP3
+file without tags.  Give a TRUE optional argument if you want to set
+some properties of this object.
+
+=cut
+
+sub new_fake {
+    my ($class, $settable) = (shift, shift);
+    my %h = (gottags => []);
+    my $self = bless \%h, $class;
+    if ($settable) {
+      $h{__proxy} = MP3::Tag::__proxy->new($self);
+      $h{ParseData} = MP3::Tag::ParseData->new_with_parent(undef, $h{__proxy});
+    }
+    \%h;
+}
+
 
 =pod
 
@@ -442,7 +470,7 @@ sub auto_field($;$) {
 	next unless exists $self->{$part};
 	next unless defined (my $out = $self->{$part}->$elt());
 	# Ignore 0-length answers from ID3v1, CDDB_File, and Inf
-	next if not length $out and $ignore_0length{$part};	# Return empty...
+	next if not length $out and $ignore_0length{$part}; # These return ''
 	return [$out, $part] if $from;
 	return $out;
     }
@@ -645,6 +673,18 @@ When extracting the date from comment fields, remove the recognized portion
 even if it is human readable (e.g., C<Recorded on 2014-3-23>) if TRUE.
 Current default: FALSE.
 
+=item default_language
+
+The language to use to select ID3v2 frames, and to choose C<COMM>
+ID3v2 frame accessed in comment() method (default is 'XXX'; if not
+C<XXX>, this should be lowercase 3-letter abbreviation according to
+ISO-639-2).
+
+=item default_descr_c
+
+The description field used to choose the C<COMM> ID3v2 frame accessed
+in comment() method.  Defaults to C<''>.
+
 =item  id3v2_frame_empty_ok
 
 When setting the individual id3v2 frames via ParseData, do not
@@ -730,6 +770,16 @@ Some broken MP3 players (e.g., ITunes, at least up to v6) refuse to
 handle unsyncronized (e.g., written as the standard requires it) tags;
 they may need this to be set to FALSE.  Default: TRUE.
 
+=item encoded_v1_fits
+
+If TRUE, data is considered to fit ID3v1 tag even if
+C<encode_encoding_v1> is set (so the resulting tag is not
+standard-complying, thus ambiguous), or is not set, but
+C<decode_encoding_v1> is set (thus read+write operation is not
+idempotent), and the tag data contains "high bit characters".  Default
+FALSE (so that ID3v2 tag will forced to written if
+C<encode_encoding_v1> is set).
+
 =item encode_encoding_v1
 
 =item decode_encoding_v1
@@ -775,8 +825,9 @@ sub config {
     my $config = ref $self ? ($self->{config} ||= {%config}) : \%config;
     my @known = qw(autoinfo title artist album year comment track genre
 		   v2title cddb_files force_interpolate parse_data parse_split
-		   composer performer
-		   parse_join parse_filename_ignore_case
+		   composer performer default_language default_descr_c
+		   update_length
+		   parse_join parse_filename_ignore_case encoded_v1_fits
 		   parse_filename_merge_dots year_is_timestamp
 		   comment_remove_date extension id3v2_missing_fatal
 		   id3v2_frame_empty_ok id3v2_minpadding id3v2_sizemult
@@ -1099,6 +1150,13 @@ sub get_id3v2_frame_ids ($$) {
     $self->{ID3v2}->get_frame_ids(@_);
 }
 
+sub id3v2_frame_descriptors ($) {
+    my ($self) = (shift);
+    $self->get_tags;
+    return if not exists $self->{ID3v2};
+    $self->{ID3v2}->get_frame_descriptors(@_);
+}
+
 =item shorten_person
 
   $string = $mp3->shorten_person($person_name);
@@ -1172,7 +1230,12 @@ The one-letter ESCAPEs are replaced by
 		S	total_secs_int
 		M	total_millisecs_int
 		m	total_mins
+		mL	leftover_mins
+		H	total_hours
 		s	leftover_secs
+		SL	leftover_secs_trunc
+		ML	leftover_msec
+		SML	leftover_secs_float
 		C	is_copyrighted_YN
 		p	frames_padded_YN
 		o	channel_mode
@@ -1289,6 +1352,12 @@ For strings of the form C<I(FLAGS)VALUE>, I<VALUE> is interpolated
 with flags in I<FLAGS> (see L<"interpolate_with_flags">).  If FLAGS
 does not contain C<i>, VALUE should have C<{}> and C<\> backwacked.
 
+=item *
+
+For strings of the form C<T[FORMAT]>, I<FORMAT> is split on comma, and
+the resulting list of formats is used to convert the duration of the
+audio to a string using the method format_time().
+
 =back
 
 The default for the fill character is SPACE.  Fill character should preceed
@@ -1335,6 +1404,14 @@ Note that if you want to write this string as a Perl literal, a lot of
 extra backslashes may be needed (unless you use C<E<lt>E<lt>'FOO'>
 HERE-document).
 
+  %{T[?Hh,?{mL}m,{SML}s]}
+
+for a file of duration 2345.62sec will result in C<39m05.62s>, while
+
+  %{T[?H:,?{mL}:,{SL},?{ML}]}sec
+
+will result in C<39:05.620sec>.
+
 =cut
 
 my %trans = qw(	t	title
@@ -1370,8 +1447,12 @@ my %trans = qw(	t	title
 		S	total_secs_int
 		M	total_millisecs_int
 		m	total_mins
+		mL	leftover_mins
+		H	total_hours
 		s	leftover_secs
-		?	leftover_msec
+		ML	leftover_msec
+		SML	leftover_secs_float
+		SL	leftover_secs_trunc
 		?	time_mm_ss
 		C	is_copyrighted_YN
 		p	frames_padded_YN
@@ -1394,7 +1475,7 @@ my %trans = qw(	t	title
 my $frame_bra =			# FRAM | FRAM03 | FRAM(lang)[
   qr{\w{4}(?:(?:\d\d)|(?:\([^)]*\))?(?:(\[)|(?=[\}:|&])))}s; # 1 group for begin-descr
 # used with offset by 1: 2: fill, 3: same, 4: $left, 5..6 width, 5: key
-my $pat_rx = qr/^%(?:(?:\((.)\)|([^-.1-9%a-zA-Z]))?(-)?(\d+))?(?:\.(\d+))?([talygcnfFeEABDNvLrqQSmsCpouM{%])/s;
+my $pat_rx = qr/^%(?:(?:\((.)\)|([^-.1-9%a-zA-Z]))?(-)?(\d+))?(?:\.(\d+))?([talygcnfFeEABDNvLrqQSmsCpouMH{%])/s;
 
 
 # $upto TRUE: parse the part including $upto char
@@ -1440,7 +1521,8 @@ sub _interpolate ($$;$$) {
 	} elsif ($what eq '{' and $_[1] =~ s/^U(\d+)}//) {	# User data
 	    next if $skip;
 	    $str = $self->get_user($1);
-	} elsif ($what eq '{' and $_[1] =~ s/^(aC|tT|c[TC])}//) { # CDDB
+	} elsif ($what eq '{' and $_[1] =~ s/^(aC|tT|c[TC]|[mMS]L|SML)}//) {
+	  # CDDB or leftover times
 	    next if $skip;
 	    my $meth = $trans{$1};
 	    $str = $self->$meth();
@@ -1546,6 +1628,9 @@ sub _interpolate ($$;$$) {
 	    }
 	    next if $skip;
 	    ($str) = $self->interpolate_with_flags($str, $flags);
+	} elsif ($what eq '{' and $_[1] =~ s/^T\[([^\[\]]*)\]\}//s) { # time
+	    next if $skip;
+	    $str = $self->format_time(undef, split /,/, $1);
 	} elsif ($what eq '{') {	# id3v2 wholesale, composer/performer
 	    unless ($self->{ID3v2} or $_[1] =~ /^!/) {
 		die "No ID3v2 present"
@@ -1604,7 +1689,8 @@ flags are
    i			interpolate via $mp3->interpolate
    f			interpret (the result) as filename, read from file
    F			if file does not exist, it is not an error
-   B			read is performed in binary mode (otherwise per
+   B			read is performed in binary mode (otherwise
+				in text mode, modified per
 				'decode_encoding_files' configuration variable)
    l			split result per 'parse_split' configuration variable
    n			as l, using the track-number-th element (1-based)
@@ -2019,11 +2105,19 @@ sub filename_extension_nodot {
 
 =item total_secs_int()
 
+=item total_secs_trunc()
+
 =item total_millisecs_int()
 
 =item total_mins()
 
+=item leftover_mins()
+
 =item leftover_secs()
+
+=item leftover_secs_float()
+
+=item leftover_secs_trunc()
 
 =item leftover_msec()
 
@@ -2054,11 +2148,13 @@ subject to the same restrictions as the method get_mp3info() of this
 module; in particular, the information about the frame number and
 frame length is only approximate
 
-vbr_scale() is from the VBR header; total_secs() is not necessarily an integer,
-but total_secs_int() is;
-time_mm_ss() has format C<MM:SS>; the C<*_YN> flavors return the value as a
-string Yes or No; mpeg_layer_roman() returns the value as a roman numeral;
-channel_mode() takes values in C<'stereo', 'joint stereo', 'dual channel', 'mono'>.
+vbr_scale() is from the VBR header; total_secs() is not necessarily an
+integer, but total_secs_int() and total_secs_trunc() are (first is
+rounded, second truncated); time_mm_ss() has format C<MM:SS>; the
+C<*_YN> flavors return the value as a string Yes or No;
+mpeg_layer_roman() returns the value as a roman numeral;
+channel_mode() takes values in C<'stereo', 'joint stereo', 'dual
+channel', 'mono'>.
 
 =cut
 
@@ -2121,11 +2217,88 @@ sub total_secs_int	{ int (0.5 + 0.001 * shift->total_millisecs_int) }
 sub total_secs		{ 0.001 * shift->total_millisecs_int }
 sub total_secs_trunc	{ int (0.001 * shift->total_millisecs_int) }
 sub total_mins		{ int (0.001/60 * shift->total_millisecs_int) }
+sub leftover_mins	{ shift->total_mins() % 60 }
+sub total_hours		{ int (0.001/60/60 * shift->total_millisecs_int) }
 sub leftover_secs	{ shift->total_secs_int() % 60 }
+sub leftover_secs_trunc	{ shift->total_secs_trunc() % 60 }
 sub leftover_msec	{ shift->total_millisecs_int % 1000 }
+sub leftover_secs_float	{ shift->total_millisecs_int % 60000 / 1000 }
 sub time_mm_ss {		# Borrowed from MP3::Info
   my $self = shift;
   sprintf "%.2d:%.2d", $self->total_mins, $self->leftover_secs;
+}
+
+=item format_time
+
+  $output = $mp3->format_time(67456.123, @format);
+
+formats time according to @format, which should be a list of format
+descriptors.  Each format descriptor is either a simple letter, or a
+string in braces appropriate to be put after C<%> in an interpolated
+string.  A format descriptor can be followed by a literal string to be
+put as a suffix, and can be preceeded by a question mark, which says
+that this part of format should be printed only if needed.
+
+Leftover minutes, seconds are formated 0-padded to width 2 if they are
+preceeded by more coarse units.  Similarly, leftover milliseconds are
+printed with leading dot, and 0-padded to width 3.
+
+Two examples of useful C<@format>s are
+
+  qw(?H: ?{mL}: {SML})
+  qw(?Hh ?{mL}m {SL} ?{ML})
+
+Both will print hours, minutes, and milliseconds only if needed.  The
+second one will use 3 digit-format after a point, the first one will
+not print the trailing 0s of milliseconds.  The first one uses C<:> as
+separator of hours and minutes, the second one will use C<h m>.
+
+=cut
+
+sub format_time {
+  my ($self, $time) = (shift, shift);
+  $self = $self->new_fake() unless ref $self;
+  local $self->{ms} = int($time * 1000 + 0.5) if defined $time;
+  my ($out, %have) = '';
+  for my $f (@_) {
+    $have{$+}++ if $f =~ /^\??({([^{}]+)}|.)/;
+  }
+  for my $f (@_) {
+    my $ff = $f;		# Modifiable
+    my $opt = ($ff =~ s/^\?//);
+    $ff =~ s/^({[^{}]+}|\w)// or die "<$f>";
+    my ($what, $format) = ($1, '');
+    if ($opt) {
+      if ($what eq 'H') {
+	$time = $self->total_secs unless defined $time;
+	$opt = int($time / 3600) || !(grep $have{$_}, qw(m mL s S SL SML));
+      } elsif ($what eq 'm' or $what eq '{mL}') {
+	$time = $self->total_secs unless defined $time;
+	$opt = int($time / 60) || !(grep $have{$_}, qw(s S SL SML));
+      } elsif ($what eq '{ML}') {
+	$opt = ($time != int $time);
+      } else {
+	$opt = 1;
+	#die "Do not know how to treat optional `$what'";
+      }
+      $what =~ /^(?:{(.*)}|(.))/ or die;
+      (delete $have{$+}), next unless $opt;
+    }
+    $format = '02'
+      if (($what eq 's' or $what eq '{SL}') and (grep $have{$_}, qw(H m mL)))
+	or $what eq '{mL}' and $have{H};
+    $what = "%$format$what";
+    $what = ".%03{ML}"
+      if $what eq '%{ML}' and grep $have{$_}, qw(H m mL s S SL);
+    if ($what eq '%{SML}' and grep $have{$_}, qw(H m mL)) { # manual padding
+      my $res = $self->interpolate($what);
+      $res = "0$res" unless $res =~ /^\d\d/;
+      $out .= "$res$ff";
+    } else {
+      $out .= $self->interpolate($what) . $ff;
+    }
+  }
+  $out;
 }
 
 my @channel_modes = ('stereo', 'joint stereo', 'dual channel', 'mono');
