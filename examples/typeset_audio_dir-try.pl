@@ -8,12 +8,49 @@ use File::Find;
 use Getopt::Std 'getopts';
 use Cwd;
 
-my %opt = (2 => '%a', a => 2, t => 1);
+my %iniopt = (2 => '%a', a => 2, t => 1, S => '');
+my %opt = %iniopt;
 # Level=2 header; Level=1 header (default - dir),
 # use duration, year, whole dates, replace @ by %, basename of output files,
 # ignore 'author' on level > this in directory tree
-# use 'album' for titles with depth above this..., encodings, no comment,lyrics
-getopts('2:1:TyYn@B:a:t:e:cL', \%opt);
+# use 'album' for titles with depth above this..., encodings, no comment,
+# lyrics, style
+my @args = @ARGV;
+
+sub my_getopts {
+  getopts('2:1:TyYn@B:a:t:e:cLS:', \%opt);
+}
+sub my_regetopts ($) {
+  my $style = shift;
+  %opt = (%iniopt, %$style);
+  @ARGV = @args;
+  my_getopts;
+}
+
+my_getopts;
+
+  # Use artist as toplevel heading, album as the 2nd level; use track numbers;
+  # name is based on title for any depth in directory hierarchy;
+  # likewise for generation of 2nd level heading.  Mark pieces with lyrics
+##  typeset_audio_dir -@ -ynTL -1 "@a" -2 "@l" -t 1000 -a 1000 -B All .
+
+  # Likewise, but the name is based on the album; ignore comments
+##  typeset_audio_dir    -yTn -1 "" -2 ""  -c -t -1e100 -a -1e100 -B All_sh .
+
+my %styles = ( long  => { 1 => '%a', 2 => '%l', t => 1e100,  a => 1e100},
+	       short => { 1 => '',   2 => '',   t => -1e100, a => -1e100},
+	     );
+my $opt_long;
+if ($opt{S} eq 'both') {
+  my_regetopts($styles{long});
+  $opt_long = {%opt, no_time => 1};
+  my_regetopts($styles{short});
+} elsif ($opt{S}) {
+  my $h = $styles{$opt{S}};
+  die "Unknown style `$opt{S}'" unless $h;
+  my_regetopts($h);
+}
+
 if ($opt{'@'}) {
   $opt{$_} =~ s/\@/\%/g for keys %opt;
 }
@@ -33,11 +70,18 @@ my $out_envelop_text;
 my $out_envelop_backcover;
 my $out_envelop_12cm;
 my $out_list = \*STDOUT;
+my $out_list_long;
+die "option `-S both' requires -B" if not $opt{B} and $opt{S} eq 'both';
+
 if (defined $opt{B}) {
   $opt{B} =~ s,\\,/,g;
   open LIST, "> $opt{B}_list.tex" or die "open `$opt{B}_list.tex' for write: $!";
   select LIST;
   $out_list = \*LIST;
+  if ($opt{S} eq 'both') {
+    open LLIST, "> $opt{B}_list_long.tex" or die "open `$opt{B}_list_long.tex' for write: $!";
+    $out_list_long = \*LLIST;
+  }
   if (-e "$opt{B}_cdcover.tex") {
     warn "Will not overwrite existing file `$opt{B}_cdcover.tex'.\n";
     undef $out_envelop_cdcover;
@@ -178,8 +222,9 @@ my $total_sec = 0;
 
 # Compare with postponed data, either emit, or postpone
 my $previous;
-sub print_this_mp3 ($) {
-  my $new = shift;
+my $previous_long;
+sub print_this_mp3 ($$$) {
+  my ($new, $opt, $previous) = (shift, shift, shift);
 
   # Print only if toplevel or one level deep, or if directory1 changed...
 #  return if defined $new->{dir1}
@@ -227,8 +272,8 @@ sub print_this_mp3 ($) {
   my $year = (defined $this->{year} ? $this->{year} : '');
   $year .= '\hasSyncLyrics' if $this->{syncLyr};
   $year .= '\hasUnsyncLyrics' if $this->{unsyncLyr};
-  if ($opt{T}) {
-    $total_sec += $this->{len};
+  if ($opt->{T}) {
+    $total_sec += $this->{len} unless $opt->{no_time};
     my $dur = to_duration $this->{len};
     $dur .= '\postduration ' if length $year;
     $year = "$dur$year"
@@ -245,34 +290,33 @@ sub print_this_mp3 ($) {
   print "$comment$year\\posttitle\n";
 }
 
-# Callback for find():
-sub print_mp3 {
+sub print_mp3_via_tag ($$$) {
   return unless -f $_ and /\.mp3$/i;
   #print STDERR "... $_\n";
-  my $tag = MP3::Tag->new($_);
+  my ($tag, $opt, $previous) = (shift, shift, shift);
   my @parts = split m<[/\\]>, $File::Find::dir;
   shift @parts if @parts and $parts[0] eq '.';
 
   my $this;
-  $this->{top} = $opt{1} ? $tag->interpolate($opt{1}) : $performers[-1];
-  $this->{author} = $tag->interpolate($opt{2});	# default '%a'
-  $this->{title} = $tag->interpolate(@parts <= $opt{t} ? '%t' : '%l');
-  $this->{track} = $tag->track if $opt{n} and @parts <= $opt{t};
-  $this->{len} = $tag->interpolate('%S') if $opt{T};
-  my $l_part = $opt{a};
+  $this->{top} = $opt->{1} ? $tag->interpolate($opt->{1}) : $performers[-1];
+  $this->{author} = $tag->interpolate($opt->{2});	# default '%a'
+  $this->{title} = $tag->interpolate(@parts <= $opt->{t} ? '%t' : '%l');
+  $this->{track} = $tag->track if $opt->{n} and @parts <= $opt->{t};
+  $this->{len} = $tag->interpolate('%S') if $opt->{T};
+  my $l_part = $opt->{a};
   $l_part = $#parts if $l_part >= $#parts;
   $this->{author_dir} = join '/', @parts[0..$l_part];
   $this->{dir1} = $parts[1];	# Not used anymore...
 
-  my $c = !$opt{c}
+  my $c = !$opt->{c}
     && $tag->select_id3v2_frame_by_descr('TXXX[add-to:file-by-person,l,t,n]');
   $this->{comment} = (defined $c and length $c) ? "($c)" : $comments[-1];
 
-  if ($opt{y}) {
+  if ($opt->{y}) {
     my $year = $tag->year;
     $year =~ s/(\d)-(?=\d{4})/$1--/g;
     # Contract long dates (with both ',' and '-')
-    if ($year and $year =~ /,/ and $year =~ /-/ and not $opt{Y}) {
+    if ($year and $year =~ /,/ and $year =~ /-/ and not $opt->{Y}) {
       $year =~ s/-?(-\d\d?\b)+//g;	# Remove month etc
       1 while $year =~ s/\b(\d{4})(?:,|--)\1/$1/g;	# Remove "the same" year
       (my $y = $year) =~ s/--/,/g;
@@ -281,12 +325,26 @@ sub print_mp3 {
     }
     $this->{year} = $year if length $year;
   }
-  if ($opt{L}) {
+  if ($opt->{L}) {
     $this->{syncLyr} = $tag->have_id3v2_frame('SYLT');
     $this->{unsyncLyr} = $tag->have_id3v2_frame('USLT');
   }
-  print_this_mp3($this);
+  print_this_mp3($this, $opt, $previous);
   return;
+}
+
+# Callback for find():
+sub print_mp3 {
+  return unless -f $_ and /\.mp3$/i;
+  #print STDERR "... $_\n";
+  my $tag = MP3::Tag->new($_);
+  if ($out_list_long) {
+    my $out = select;
+    select $out_list_long;
+    print_mp3_via_tag($tag, $opt_long, $previous_long);
+    select $out;
+  }
+  print_mp3_via_tag($tag, \%opt, $previous);
 }
 
 my $oenc = $enc{o} || 'utf8';
@@ -639,8 +697,10 @@ for my $o (grep defined $_->[0],
 EOP
 }
 
-my $optional_cont = <<'EOP';
-\iffalse
+my $name_long = $out_list_long ? "$opt{B}_list_long" : 'another_list';
+my $optional_cont = $out_list_long ? '\iftrue' : '\iffalse';
+$optional_cont .= <<'EOP' . <<EOQ . <<'EOP';
+
   \pagebreak[4]				% Mandatory page break
   \let\PREDIR\PREDIRi			% Reset multicolumn logic
 
@@ -654,7 +714,9 @@ my $optional_cont = <<'EOP';
     \POSTauthorSKIP 0.6pt\relax
     % Make this more negative for less skip between non-continuation lines
     \parskip=-0.7pt plus 1pt\relax
-    \input{another_list}
+EOP
+    \\input{$name_long}
+EOQ
     \end{multicols}
   }
 \fi
@@ -737,11 +799,18 @@ for (@ARGV) {
   $author = '';
   $TIT1 = '';
   undef $previous;
+  undef $previous_long;
   File::Find::find { wanted => \&print_mp3, no_chdir => 1,
 		     postprocess => \&unwind_dir,
 		     preprocess => \&preprocess_and_sort_with_aligned_numbers },
 		'.';
-  print_this_mp3({});	# Flush the postponed data
+  if ($out_list_long) {
+    my $out = select;
+    select $out_list_long;
+    print_this_mp3({}, $opt_long, $previous_long);	# Flush the postponed data
+    select $out;
+  }
+  print_this_mp3({}, \%opt, $previous);	# Flush the postponed data
   chdir $d or die;
 }
 
@@ -749,6 +818,10 @@ if ($opt{T}) {
   $total_sec = to_duration $total_sec;
   print "\\gdef\\totalDuration{Total time: $total_sec. }%\n";
 }
+
+close $out_list_long
+  or warn "Error closing `$opt{B}_list_long.tex' for write: $!"
+  if defined $out_list_long;
 
 
 print $out_envelop_cdcover <<'EOP' if defined $out_envelop_cdcover;
@@ -788,6 +861,9 @@ typeset_audio_dir - produce B<TeX> listing of directories with audio files.
   # Likewise, but the name is based on the album; ignore comments
   typeset_audio_dir    -yTn -1 "" -2 ""  -c -t -1e100 -a -1e100 -B All_short .
 
+  # Shortcuts for the last two
+  typeset_audio_dir -@ -ynTL -S long     -B All .
+  typeset_audio_dir    -yTn  -S short -c -B All_short .
 
 =head1 DESCRIPTION
 
@@ -908,6 +984,15 @@ correspondingly.  Use 0 instead of an encoding to do byte-oriented read/write.
 
 If not given, the frame C<TXXX[add-to:file-by-person,l,t,n]> will be
 inspected, and used as a "comment" for a record.
+
+=item B<-S STYLE>
+
+a shortcut for setting options C<-1 -2 -a -t> to specific values given in
+L<"SYNOPSIS">:
+
+  long:  -1 "@a" -2 "@l" -t  1e100 -a  1e100
+  short: -1 ""   -2 ""   -t -1e100 -a -1e100
+
 
 =back
 

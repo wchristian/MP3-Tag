@@ -1,9 +1,45 @@
+Release Name: 0.9709
+====================
+
+extract-y.pl was reversing the "informativeness" test, thus one needed
+to redo Music_Translate_Fields-L_van_Beethoven.comp; add missing sonata
+names to the latter.
+
+Improve docs for ENVIRONMENT.  New customization variable local_cfg_file,
+new method parse_cfg() (reads ~/.mp3tagprc).  [not tested]
+
+New interpolation directives iC and iI to access cddb_id, cdindex_id.
+New methods cddb_id, cdindex_id, id3v2_frames_autofill.  New configuration
+variable id3v2_frames_autofill.  Support for filling MCDI frame.
+
+mp3info2: id3v2_frames_autofill() is called unless -d option is given.
+(Most probably the result is not propagated back to file unless -u option
+was given.)
+
+CDDB_File.pm: new method (and parse directive) cddb_id.
+Inf.pm: new methods (and parse directives) cddb_id, cdindex_id (cddb_id
+has the leading '0x' stripped).
+ID3v2.pm: new methods cddb_id, cdindex_id (read the corresponding TXXX frames).
+
+Splitting UCS-2 fields by short-\0 was wrong.
+
+Workaround for ITunes bug was not complete: only size calculation was
+conditional on a configuration variable, but not the actual unsyncronization...
+
+typeset_audio_dir-try.pl - new variant (untested).
+
+typeset_audio_dir was ignoring -n option.
+
+Extend matching of track number when parsing to 999 (not more to avoid
+confusion with years); such tracks are, apparently, written mod 256 into
+ID3v1 tag.
+
 Release Name: 0.9708
 =======================
 
 Allow character devices for files (so /dev/null now "works"
   mp3info2 -D -a beethoven -t "piano in F#" /dev/null
-).
+will print the info deduced from per-composer databases).
 
 total_secs_trunc() was not documented.
 

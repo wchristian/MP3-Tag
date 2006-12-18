@@ -39,6 +39,7 @@ examples/fetch_composer_codm.pl
 examples/empty_10sec.mp3
 examples/extract-y.pl
 examples/Music_Translate_Fields-normalize.pl
+examples/typeset_audio_dir-try.pl
 test.mp3
 t/mp3tag.t
 t/set_v2.t

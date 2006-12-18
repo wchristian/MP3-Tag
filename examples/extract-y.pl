@@ -115,7 +115,7 @@ sub years_of_range ($) {
   $y[0] .. $y[1]
 }
 
-sub cmp_sets ($$) {		# undef on unclear
+sub cmp_sets ($$) {		# undef on unclear; returns -1 if $a <<< $b
   my ($a, $b) = (shift, shift);
   my (%a, %b, %only_a, %only_b);
   @a{@$a} = (1) x @$a;
@@ -125,16 +125,16 @@ sub cmp_sets ($$) {		# undef on unclear
   delete $only_b{$_} for keys %a;
   return undef if %only_a and %only_b;
   return 0 unless %only_a or %only_b;
-  return (%only_a ? -1 : 1);
+  return (%only_a ? 1 : -1);
 }
 
-sub compare_dates ($$) {	# cmp dates "informativeness"; undef on unclear
-  my ($a, $b) = (shift, shift);	# Should be strings
+sub cmp_dates ($$) { # cmp dates' "informativeness"; undef on unclear
+  my ($a, $b) = (shift, shift);	# Should be strings; returns -1 if $a <<< $b
   unless (defined $a) {
     return undef unless defined $b;
-    return 1;
+    return -1;
   }
-  return -1 unless defined $b;
+  return 1 unless defined $b;
   # Both defined now
   return 0 if $a eq $b;
   my ($a_words, $b_words) = (0,0);
@@ -151,7 +151,7 @@ sub compare_dates ($$) {	# cmp dates "informativeness"; undef on unclear
   return undef unless defined $diff_r;
   return undef if $diff_r and $diff_w and $diff_r ne $diff_w;
   # Now the differences are in the same direction, if any
-  my $diff_rw = $diff_r = $diff_w;
+  my $diff_rw = $diff_w;
   @ayears = ($a =~ /$rx_isodate/g);
   @byears = ($b =~ /$rx_isodate/g);
   my $diff_y = cmp_sets \@ayears, \@byears;
@@ -226,9 +226,9 @@ if ($how eq 'fix') {
       my $bad;
       for my $fff (0..$#$ys) {
 	next if $fff == $ff or not defined $ys->[$fff];
-	my $res = compare_dates $ys->[$ff], $ys->[$fff];
+	my $res = cmp_dates $ys->[$ff], $ys->[$fff];
 	$bad++, last if not defined $res or $res < 0;
-	$bad++, last if not $res and $fff > $ff;
+	$bad++, last if not $res and $fff < $ff; # Reject a later one of the same
       }
       push @best, $ff unless $bad;
     }

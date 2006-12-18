@@ -3,17 +3,17 @@
 use FindBin;
 use lib "$FindBin::Bin";
 
-use MP3::Tag 0.9706;
+use MP3::Tag 0.9709;
 use Getopt::Std 'getopts';
 use strict;
 
-my $VERSION = '1.01';
+my $VERSION = '1.02';
 
 BEGIN { eval 'require Music_Translate_Fields' }
 
 my %opt = (r => '(?i:\.mp3$)', E => 'p/i:Fp');
 my @oARGV = @ARGV;
-my $opts = 'c:a:t:l:n:g:y:uDp:C:P:E:G@Rr:I2e:d:F:';
+my $opts = 'c:a:t:l:n:g:y:uDp:C:P:E:G@Rr:I2e:d:F:x';
 getopts($opts, \%opt);
 exec 'perldoc', '-F', $0 unless @ARGV;
 
@@ -48,8 +48,16 @@ my %trans = (	't' => 'title',
 
 # Interprete Escape sequences:
 my %r = ( 'n' => "\n", 't' => "\t", '\\' => "\\"  );
-my ($e_backsl, $e_interp) = ((split m(/i:), $opt{E}, 2), '');
-for my $e ($e_backsl) {
+my ($e_backsl, $e_interp);
+if ($opt{E} =~ s/^\+//) {
+  ($e_backsl, $e_interp) = ((split m(/i:), $opt{E}, 2), '');
+  $e_backsl .= 'p' unless $e_backsl =~ /p/;
+  $e_interp =~ s/[Fp]//g;
+  $e_interp .= 'Fp';
+} else {
+  ($e_backsl, $e_interp) = ((split m(/i:), $opt{E}, 2), '');
+}
+for my $e (split //, $e_backsl) {
   $opt{$e} =~ s/\\([nt\\])/$r{$1}/g if defined $opt{$e};
 }
 $e_interp = {map +($_, 1), split //, $e_interp};
@@ -133,105 +141,123 @@ if (defined $opt{P}) {
 # E.g., to make Inf overwrite existing title, do 
 # mp3info2.pl -C title,Inf,ID3v2,ID3v1,filename -u *.mp3
 
+sub new_tag_object ($) {
+  my $fname = shift;
+  return MP3::Tag->new($fname) unless $fname eq '';
+  MP3::Tag->new_fake('settable');
+}
+
 sub process_file ($) {
     my $f = shift;
-    my $mp3=MP3::Tag->new($f);	# BUGXXXX Can't merge into if(): extra refcount
+    my $mp3 = new_tag_object($f); # BUGXX Can't merge into if(): extra refcount
     if ($mp3) {
-	print $mp3->interpolate(<<EOC) unless exists $opt{p};
+      print $mp3->interpolate(<<EOC) unless exists $opt{p};
 File: %F
 EOC
-	for my $tag (@del_tag) {	# delete whole tags
-	  $mp3->delete_tag($tag);
-	}
-	$mp3 = MP3::Tag->new($f) if @del_tag;
+      for my $tag (@del_tag) {	# delete whole tags
+				  $mp3->delete_tag($tag);
+				}
+      $mp3 = new_tag_object($f) if @del_tag;
 
-	my $data = $mp3->autoinfo('from');
-	my $modify = $opt{2};
-	my @args;
-	for my $k (keys %trans) {
-	  if (exists $opt{$k}) {
-	    my $i = ($e_interp->{$k} ? 'i' : '');
-	    push @args, ["mz$i", $opt{$k}, "%$k"];
-	    if (exists $data->{$trans{$k}}) {
-		if ( $data->{$trans{$k}}->[0] ne $opt{$k}
-		     or $data->{$trans{$k}}->[1] !~ /^id3/i ) {
-		    warn "Need to change $trans{$k}\n";
-		    $data->{$trans{$k}} = [$opt{$k}, 'cmd'];
-		    $modify = 1;
-		}
-	    } else {
-		warn "Need to add $trans{$k}\n";
-		$data->{$trans{$k}} = [$opt{$k}, 'cmd'];
-		$modify = 1;
+      my $data = $mp3->autoinfo('from');
+      my $modify = $opt{2};
+      my @args;
+      for my $k (keys %trans) {
+	if (exists $opt{$k}) {
+	  my $i = ($e_interp->{$k} ? 'i' : '');
+	  push @args, ["mz$i", $opt{$k}, "%$k"];
+	  if (exists $data->{$trans{$k}}) {
+	    if ( $data->{$trans{$k}}->[0] ne $opt{$k}
+		 or $data->{$trans{$k}}->[1] !~ /^id3/i ) {
+	      warn "Need to change $trans{$k}\n";
+	      $data->{$trans{$k}} = [$opt{$k}, 'cmd'];
+	      $modify = 1;
 	    }
+	  } else {
+	    warn "Need to add $trans{$k}\n"
+	      unless $f eq '';
+	    $data->{$trans{$k}} = [$opt{$k}, 'cmd'];
+	    $modify = 1;
 	  }
 	}
-	if ($opt{u} and not $modify) {		# Update
-	    for my $k (keys %$data) {
-		next if $k eq 'song'; # Alias for title (otherwise double warn)
-		next if $data->{$k}->[1] =~ /^(ID3|cmd)/;
-		next unless defined $data->{$k}->[0];
-		next unless length  $data->{$k}->[0];
-		$modify = 1;
-		warn "Need to propagate $k from $data->{$k}->[1]\n";
-	    }
+      }
+      if ($opt{u} and not $modify) { # Update
+	for my $k (keys %$data) {
+	  next if $k eq 'song'; # Alias for title (otherwise double warn)
+	  next if $data->{$k}->[1] =~ /^(ID3|cmd)/;
+	  next unless defined $data->{$k}->[0];
+	  next unless length  $data->{$k}->[0];
+	  $modify = 1;
+	  warn "Need to propagate $k from $data->{$k}->[1]\n";
 	}
+      }
 
-	my $odata = $data;
-	# Now, when we know what should be updated, retry with arguments
+      my $odata = $data;
+      # Now, when we know what should be updated, retry with arguments
 
-	if (@args or @parse_data or @set) {
-            $mp3 = MP3::Tag->new($f);
-	    $mp3->config('parse_data', @parse_data, @args);
-	    for my $set (@set) {
-	      my $v = $set->[1];
-	      $v = $mp3->interpolate($v) if $e_interp->{F};
-	      $mp3->select_id3v2_frame_by_descr($set->[0], $v);
-	      $modify++;
-	    }
-	    $data = $mp3->autoinfo('from');
+      if (@args or @parse_data or @set) {
+	$mp3 = new_tag_object($f);
+	$mp3->config('parse_data', @parse_data, @args);
+	for my $set (@set) {
+	  my $v = $set->[1];
+	  $v = $mp3->interpolate($v) if $e_interp->{F};
+	  $mp3->select_id3v2_frame_by_descr($set->[0], $v);
+	  $modify++;
 	}
-	for my $del (@del) {	# delete
-	  my $c = $mp3->select_id3v2_frame_by_descr($del, undef);
-	  warn "No frames found for $del.\n" unless $c;
-	  $modify++ if $c;
-	}
+	$data = $mp3->autoinfo('from');
+      }
+      for my $del (@del) {	# delete
+	my $c = $mp3->select_id3v2_frame_by_descr($del, undef);
+	warn "No frames found for $del.\n" unless $c;
+	$modify++ if $c;
+      }
 
-	my $performer = 'Artist:  %a';
-	unless (exists $opt{p}) {
-	    my $p = $mp3->interpolate('%{TXXX[TPE1]}');
-	    if (length $p and not $opt{I}) {
-		$performer = "Performer: %{TXXX[TPE1]}";
-#	    } elsif ($mp3->have_id3v2_frame('TPE1')) {
-#		$performer = $mp3->interpolate("Artist: %{TPE1}\n");
-#	    } else {
-#		$performer = $mp3->interpolate("\n");
-	    }
+      my $performer = 'Artist:  %a';
+      unless (exists $opt{p}) {
+	my $p = $mp3->interpolate('%{TXXX[TPE1]}');
+	if (length $p and not $opt{I}) {
+	  $performer = "Performer: %{TXXX[TPE1]}";
+	  #	    } elsif ($mp3->have_id3v2_frame('TPE1')) {
+	  #		$performer = $mp3->interpolate("Artist: %{TPE1}\n");
+	  #	    } else {
+	  #		$performer = $mp3->interpolate("\n");
 	}
-	print $mp3->interpolate(exists $opt{p} ? $opt{p} : <<EOC);
+      }
+      print $mp3->interpolate(exists $opt{p} ? $opt{p} : <<EOC);
 Title:   %-50t Track: %n
 %{TCOM:Composer: %{TCOM}
 }%{TEXT:Text: %{TEXT}
 }$performer
-Album:   %-50l Year:  %y
+%{TPE2:Orchestra (etc): %{TPE2}
+}%{TPE3:Conductor (etc): %{TPE3}
+}Album:   %-50l Year:  %y
 Comment: %-50c Genre: %g
 EOC
 
-	# Recheck whether we need to update
-	if (not $modify and $opt{u} and @parse_data) {
-	    for my $k (keys %$data) {
-		$modify = 1, last
-		    if defined $data->{$k} and 
-			(not defined $odata->{$k} or $data->{$k} ne $odata->{$k});
-	    }
+      if ($opt{x}) {
+	print $mp3->interpolate(<<EOC); # Aligned for MPEG2 L3
+Audio:      %-12{T[?Hh,?{mL}m,{SML}s]} MPEG %v Layer %L    %r KB/s, %qKHz (%o)
+Copyright:  %-4C         Frames Padded: %-4p Frames:   %u
+EOC
+	my @descr = $mp3->id3v2_frame_descriptors();
+	print "ID3v3 frames: @descr\n" if @descr;
+      }
+      # Recheck whether we need to update
+      if (not $modify and $opt{u} and @parse_data) {
+	for my $k (keys %$data) {
+	  $modify = 1, last
+	    if defined $data->{$k} and
+	      (not defined $odata->{$k} or $data->{$k} ne $odata->{$k});
 	}
-	$opt{u} and warn "No update needed\n" unless $modify or $mp3->is_id3v2_modified;
-	return unless ($modify or $opt{u} and $mp3->is_id3v2_modified)
-	    and not $opt{D};		# Dry run
-	$mp3->frames_translate if $opt{2};
-	$mp3->update_tags($data, $opt{2});
+      }
+      $mp3->id3v2_frames_autofill() unless $opt{d};
+      $opt{u} and warn "No update needed\n" unless $modify or $mp3->is_id3v2_modified;
+      return unless ($modify or $opt{u} and $mp3->is_id3v2_modified)
+	and not $opt{D};	# Dry run
+      $mp3->frames_translate if $opt{2};
+      $mp3->update_tags($data, $opt{2});
     } else {
-	print "Not found...\n";
+      print "Not found...\n";
     }
 }
 
@@ -309,7 +335,8 @@ C<-u> forces the update of the ID3 tags.
 =back
 
 (All ways are disabled by C<-D> option.)  ID3v2 tag is written if
-needed.
+needed.  (Automatic fill-in of deduceable fields (via the method
+id3v2_frames_autofill()) is performed unless C<-d> option is given.)
 
 The option C<-u> writes (C<u>pdates) the fetched information to the
 MP3 ID3 tags.  This option is assumed if tag elements are set via
@@ -385,7 +412,9 @@ are interpolated; one can append the letters of C<t a l y g c n F>
 options requiring C<%>-interpolation after the separator C</i:> (for
 C<-F>, only the values are interpolated).  The default value is
 C<p/i:Fp>: only C<-p> is C<\>-interpolated, and only C<-F> and C<-p>
-are subject to C<%>-interpolation.
+are subject to C<%>-interpolation.  If all one wants is to I<add> to
+the defaults, preceed the value of C<-E> (containing added options) by
+C<"+">.
 
 If the option C<-@> is given, all characters C<@> in the options are
 replaced by C<%>.  This may be convenient if the shell treats C<%>
@@ -402,11 +431,31 @@ option.)  Note that since C<ParseData> is used to inject the user-specified
 tag fields (such as C<-a "A. U. Thor">), usually it should be kept in the
 C<autoinfo> configuration (and related fields C<author> etc).
 
+If the option C<-x> is given, a technical information about the audio
+file is printed (MP3 level, duration, number of frames, padding, copyright).
+
 =head1 Extra translation
 
 If a module C<Music_Translate_Fields> is available, it is loaded.  It may
 define methods C<translate_artist> etc which would be used by L<MP3::Tag>
-(via corresponding configuration settings).
+(via corresponding configuration settings) to normalize certain tag data.
+
+In addition to normalizing MP3 tag data, one can use "fake MP3 files"
+to access some features of this module; for this, use an empty file
+name.  E.g,
+
+  mp3info2 -D -a beethoven                 -p "%a\n"         ""
+  mp3info2 -D -a beethoven                 -p "%{shP[%a]}\n" ""
+  mp3info2 -D -a beethoven -t "sonata #28" -p "%t\n"         ""
+
+will print the normalized person-name for C<beethoven>, the
+corresponding normalized short person-name, and the normalized title
+for C<sonata #28> of composer C<beethoven>.  E.g., with the shipped
+normalization tables, it will print
+
+  Ludwig van Beethoven (1770-1827)
+  L. van Beethoven
+  Piano Sonata No. 28 in A major; Op. 101 (1816)
 
 =head1 EXAMPLES
 
@@ -460,7 +509,7 @@ explicit asignment, with arguments similar to
 
 (this value of C<-E> requests C<%>-interpolation of the option C<-a>
 in addition to the default C<\>-interpolation of C<-p>, and
-C<%>-interpolation of C<-F> and C<-p>).
+C<%>-interpolation of C<-F> and C<-p>; one can shortcut it with C<-E +a>).
 
 To give more examples,
 
@@ -612,11 +661,11 @@ This tool is loosely modeled on the program F<mp3info>; it is "mostly"
 backward compatible, and allows a very significant superset of
 functionality.  Known backward incompatibilities are:
 
-  -G -h -r -d
+  -G -h -r -d -x
 
 Missing functionality:
 
-  -f -F -i -x
+  -f -F -i
 
 Incompatible C<%>-I<escapes>:
 
@@ -631,6 +680,8 @@ Missing C<%>-I<escapes>:
   %b %G
 
 Backslash escapes: only C<\\>, C<\n>, C<\t> supported.
+
+C<-x> prints data in a different format, and not all fields are present.
 
 =head1 ENVIRONMENT
 
