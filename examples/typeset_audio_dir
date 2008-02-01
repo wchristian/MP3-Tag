@@ -1,6 +1,6 @@
 #!/usr/bin/perl -w
 
-$VERSION = 0.03;
+$VERSION = 0.04;
 
 use strict;
 use MP3::Tag;
@@ -8,6 +8,7 @@ use File::Find;
 use Getopt::Std 'getopts';
 use Cwd;
 
+$Getopt::Std::STANDARD_HELP_VERSION = 1;
 my %opt = (2 => '%a', a => 2, t => 1);
 # Level=2 header; Level=1 header (default - dir),
 # use duration, year, whole dates, replace @ by %, basename of output files,
@@ -676,11 +677,17 @@ print $out_envelop_backcover <<'EOP' if defined $out_envelop_backcover;
 
 \addvspace{0.5ex}
 \hrule
+EOP
+
+print $out_envelop_backcover <<'EOP' if $opt{T} and defined $out_envelop_backcover;
 %\addvspace{-1.5ex}
 \begin{center}
 {\bf \small \totalDuration\today}
 \end{center}
 
+EOP
+
+print $out_envelop_backcover <<'EOP' if defined $out_envelop_backcover;
 \reportLyricsSyntax
 
 %\vfill\vfil
@@ -705,10 +712,16 @@ print $out_envelop_12cm <<'EOP', $optional_cont if defined $out_envelop_12cm;
 \hrule height0.8pt\relax
 \vskip 1.2pt
 \hrule height1.7pt\relax
+EOP
+
+print $out_envelop_12cm <<'EOP', $optional_cont if $opt{T} and defined $out_envelop_12cm;
 %\addvspace{-1.5ex}
 \begin{center}
 {\bf \small \totalDuration\today}
 \end{center}
+EOP
+
+print $out_envelop_12cm <<'EOP', $optional_cont if defined $out_envelop_12cm;
 
 \reportLyricsSyntax
 

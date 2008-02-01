@@ -1,6 +1,9 @@
 #!/usr/bin/perl -w
 
-$VERSION = 0.04;
+eval 'exec /usr/bin/perl -w -S $0 ${1+"$@"}'
+    if 0; # not running under some shell
+
+$VERSION = '1.01';
 
 use MP3::Tag;
 use Getopt::Std 'getopts';
@@ -8,6 +11,7 @@ use File::Spec;
 use File::Path;
 use strict;
 
+$Getopt::Std::STANDARD_HELP_VERSION = 1;
 my %opt = (E => '', p => '%02n_%t', e => '.inf|.tag|.mp3', r => qr(\.mp3$)i);
 
 # WinCyrillic (win1251), short (CDFS), Keep non-filename chars, Dry run, Glob,
@@ -66,7 +70,7 @@ my $translator;
 sub setup_translator () {
   return if $translator;
   require FindBin;
-  push @INC, $FindBin::Bin;
+  push @INC, $FindBin::Bin if $FindBin::Bin;	# Pacify "used only once..."
   require transliterate_win1251;
   $translator = transliterate_win1251::make_translator(
        (transliterate_win1251::prepare_translation(
@@ -196,7 +200,7 @@ sub process_file ($) {
 	print "  ==> `$name$ext'\n";
 	return if $opt{D};
 	mkpath $dirname if defined $dirname and not -d $dirname;
-	mk_path_filename("$name$ext") if $lastcomp =~ m,/,;
+	mk_path_filename("$name$ext") if $lastcomp and $lastcomp =~ m,[\\/],;
 	undef $mp3;			# Close the file
 	rename $f, "$name$ext" or die "rename: $!";
 	for $e (@ext) {
@@ -230,7 +234,12 @@ audio_rename - rename an audio file via information got via L<MP3::Tag>.
 renames all the audio files in this directory and its subdirectories
 into a 3-level directory structure given by
 F<Artist_Name/Album/Filename>, with the basename of F<Filename> being
-the 2-digit track number separated from the title by underscore.
+the 2-digit track number separated from the title by underscore; it also
+transliterates cyrillic, and shortens long names.
+
+(Due to use of C<-@> and double quotes, this command line should work
+both with UNIXish and DOSish shells; the other examples can be massaged
+likewise.)
 
   audio_rename -KD *.wav
 
@@ -270,7 +279,7 @@ and renames the given files (or audio files in the directories)
 according to the rules specified through the command line options.
 File extensions are preserved (by default).
 
-Some "companion" files (i.e., file with the same basename, and with an
+Some "companion" files (i.e., files with the same basename, and with an
 extension from a certain list) may be renamed together with audio
 files.  A lot of care is taken to make the resulting file names as
 portable as possible: e.g., "funny" characters in file names are
@@ -346,7 +355,9 @@ interpolated.  Default is none.
 
 Replace C<@> by C<%> in option values.  (May be useful since B<-p> and
 B<-P> may have a lot of embedded characters C<%>, which may be hard to
-deal with on some shells, e.g., DOSISH shells.)
+deal with on some shells, e.g., DOSISH shells.  DOSish shells recognize
+double quotes, so if one wants shell-transparent examples of command lines,
+use -@ and double quotes.)
 
 =item B<-P> C<patterns>
 
@@ -376,7 +387,8 @@ in the given pattern (not slashes coming from interpolated strings).
 =item B<-c>
 
 Latinize file names (for portability) assuming they are in WinCyrillic
-encoding.
+encoding.  Needs F<transliterate_win1251.pm> (in F<examples/mod> directory
+of the distribution; put it in the same directory as the script).
 
 =item B<-K>
 
@@ -397,7 +409,7 @@ completeness only.  If one needs really complicated parsing rules to
 deduce the resulting file name, it is much safer to use L<mp3info2|mp3info2>
 utility to set the wanted file name into some ID3v2 frame (such as
 C<TXXX[wanted-target-name]>), and then, after checking for errors, use
-this result similar to
+this result similarly to
 
   audio_rename -p "%{TXXX[wanted-target-name]]}" -R .
 

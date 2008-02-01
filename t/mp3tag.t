@@ -172,11 +172,13 @@ ok($inf && $mp3->autoinfo('from')->{comment}[1] eq 'Inf', "Checking .inf comment
 use File::Spec;
 require File::Basename;
 my $i =  $mp3->interpolate('file=%(_)-12f, File=%F, %%comment="%c", dir="%{d0}"');
-my $ii = 'file=test2.mp3___, File=' . File::Spec->rel2abs('test2.mp3')
+# Skip a good test on 5.005
+my $checkname = (File::Spec->can('rel2abs') ? 'test2.mp3' : './test2.mp3');
+my $ii = 'file=test2.mp3___, File=' . MP3::Tag->rel2abs($checkname)
 	. ', %comment="Chiribim conducts Some Choir; recorded in Mariann"'
-	. ', dir="' . scalar(File::Basename::fileparse(File::Basename::dirname(File::Spec->rel2abs('test2.mp3')),"")) . '"';
+	. ', dir="' . scalar(File::Basename::fileparse(File::Basename::dirname(MP3::Tag->rel2abs('test2.mp3')),"")) . '"';
 #warn "$i\n$ii\n";
-ok($inf && $i eq $ii, "Checking interpolation");
+ok($inf && $i eq $ii, "Checking interpolation: `$i' eq `$ii'");
 
 ok($mp3->filename_nodir eq "test2.mp3", "Checking filename method:");
 ok($mp3 && $mp3->interpolate("%A.%e") eq $mp3->interpolate("%F"), "interpolate %A");

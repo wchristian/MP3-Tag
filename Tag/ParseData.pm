@@ -3,7 +3,7 @@ package MP3::Tag::ParseData;
 use strict;
 use vars qw /$VERSION @ISA/;
 
-$VERSION="0.9707";
+$VERSION="0.9710";
 @ISA = 'MP3::Tag::__hasparent';
 
 =pod
@@ -246,7 +246,7 @@ sub parse {
 	      delete $res->{$k};
 	      $self->{parent}->set_id3v2_frame($k);	# delete
 	    }
-	  } elsif ($k =~ /^\w{4}(\d{2,}|(?:\(([^)]*)\))?(?:\[(\\.|[^]\\]*)\])?)$/) {
+	  } elsif ($k =~ /^\w{4}(\d{2,}|(?:\(([^()]*(?:\([^()]+\)[^()]*)*)\))?(?:\[(\\.|[^]\\]*)\])?)$/) {
 	    my $r = delete $res->{$k};
 	    $r = undef unless length $r or $self->get_config('id3v2_frame_empty_ok')->[0];
 	    if (defined $r or $self->{parent}->_get_tag('ID3v2')) {

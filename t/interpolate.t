@@ -7,7 +7,7 @@
 # Change 1..1 below to 1..last_test_to_print .
 # (It may become useful if the test is moved to ./t subdirectory.)
 
-BEGIN { $| = 1; print "1..23\n"; $ENV{MP3TAG_SKIP_LOCAL} = 1}
+BEGIN { $| = 1; print "1..24\n"; $ENV{MP3TAG_SKIP_LOCAL} = 1}
 END {print "MP3::Tag not loaded :(\n" unless $loaded;}
 use MP3::Tag;
 $loaded = 1;
@@ -38,6 +38,8 @@ $res = $mp3->interpolate('aa%{I(if)%{!y:xxx%{f||not_present}}}bb');
 ok($res eq 'aacontentbb', "I(fi) interpolates with conditional with choice ");
 $res = $mp3->interpolate('aa%{COMM03:%{I(if)%{!y:xxx%{f||not_present}}}}bb');
 ok($res eq 'aabb', "I(fi) interpolates in conditional");
+$res = $mp3->interpolate('aa%{ID3v2:%{frames/, }--}bb');
+ok($res eq 'aabb', "%{frames} interpolates in conditional");
 
 $res = $mp3->format_time(56345.62, qw(?Hh ?{mL}m {SL} ?{ML}));
 print "# `$res'\n";

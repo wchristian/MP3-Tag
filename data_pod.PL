@@ -45,13 +45,14 @@ It contains also a list of all supported ID3v2-Frames.
  
  (\$info, \$long) = \$id3v2->get_frame(\$id, 'raw');
 
- \$id has to be a name of a frame like "APIC". See also L<get_frame()|MP3::Tag::ID3v2>.
+\$id has to be a name of a frame like "APIC".  For more variants of calling
+see L<get_frame()|MP3::Tag::ID3v2>.
 
- The names of all frames found in a tag can be retrieved with the L<get_frame_ids()|MP3::Tag::ID3v2> function.
+The names of all frames found in a tag can be retrieved with the L<get_frame_ids()|MP3::Tag::ID3v2> function.
 
 =head2 Using the returned data
 
- In the ID3v2.3 specifications $#frames frames are defined, which can contain very
+In the ID3v2.3 specifications $#frames frames are defined, which can contain very
 different information. That means that get_frame returns the information
 of different frames also in different ways.
 
@@ -72,7 +73,7 @@ For more complex frames the returned \$info is a reference to a hash, where
 each entry of the hash decribes a part of the information found in the
 frame. The key of a hash entry contains the name of this part, the according
 value contains the information itself.
- 
+
 Example:
   get_frame("APIC");     # returns
   
@@ -97,6 +98,13 @@ Example:
   ("\\x00Birdhouse In Your Soul", "Title/songname/content description")
 
 =back
+
+The frames which (in addition to C<Text>/C<URL>) contain only
+C<Description> and C<Language> fields are in some intermediate position
+between "simple" and "complex" frames.  They can be handled very similarly
+to "simple" frames by using "long names", such as C<COMM[description]>
+or C<COMM(LANG)[description]>, and the corresponding "quick" API such
+as frame_select().
   
 INTRO
 
@@ -108,7 +116,7 @@ INTRO
 foreach (@frames) {
   $data = MP3::Tag::ID3v2::what_data("", $_);
   if (ref $data) {
-    if ($#$data == 0) {
+    if ($#$data == 0 and ($$data[0] =~ /^(Text|URL)$/ or $_ eq 'MCDI')) {
       push @text, $_;
     } else {
       push @complex, $_;

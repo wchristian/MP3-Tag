@@ -1,3 +1,82 @@
+Release Name: 0.9710
+====================
+
+Some minimal changes to make test suite pass "better" on 5.005
+(Music_Translate_Fields does not work; %F is not guarantied to get full name;
+some proxying problems remains [leaks ==> files remain open];
+t/update_tags.t works well under debugger, not otherwise...).
+
+Tag.pm ID3v2.pm ParseData.pm mp3info2: support Language with parentheses, as in
+ "Cover (back)" (when used as "Picture type").
+ Document id3v2_frame_descriptors().
+ New interpolation token: %{frames}, %{frames/SEPARATOR}.
+ Allow %{ID3v2: ... } and ID3v2 as conditionals.
+ Parsing of %{composer} etc inside false conditionals was wrong.
+
+ID3v1.pm: is not confused by multipart genres (such as described by id3v2).
+
+ID3v2.pm: extra $raw-ness for get_frame() (return array [=ordered hash], or
+          array of values, or same with ignoring `decode_encoding_v2');
+ get_frame() handles MCDI as a "simple frame";
+ document get_frame_descr() and get_frame_descriptors();
+ new argument $raw_ok for as_bin() to return original tag if unmodified;
+ new method fix_frames_encoding() to make encoding standard-conformant;
+ fix_frames_encoding() autocalled (controled by `decode_encoding_v2',
+  `id3v2_fix_encoding_on_write' and `id3v2_fix_encoding_on_edit');
+ `decode_encoding_v2' may be disabled per tag via
+   frame TXXX[trusted_encoding0_v2] (in turn, this feature may be disabled
+   by `ignore_trusted_encoding0_v2');
+ frame TXXX[trusted_encoding0_v2] may be auto-added by fix_frames_encoding()
+   (controlled by `id3v2_set_trusted_encoding0');
+ special-field-readers now check their calling API (to allow future extensions);
+ reading TCON normalizes genres, skips duplicates, and handles 0-separated
+   genres (as mandated by v2.4) [thanks to neil verplank for the prototype
+   implementation];
+ reading/writing of v2.4 tags controlled by `prohibit_v24'/`write_v24';
+ misprint in "Media (e.g. label side of CD)" of APIC corrected (backward
+   compatibility value preserved);
+ APIC frames handled by frame_select() (and derivatives); uses "Picture Type"
+   instead of "Language", and auto-calculates "MIME type" for
+   TIFF/JPEG/GIF/PNG;
+ likewise for get_frame_descr().
+
+Tag.pm: simplified method get_config1() for accessing one-element configuration
+        arrays;
+ conversion milleseconds ==> seconds was wrong (!!!) when NVs are 80-bit;
+ new configuration variables `id3v2_recalculate', `ignore_trusted_encoding0_v2',
+   `id3v2_set_trusted_encoding0', `id3v2_fix_encoding_on_write',
+   `id3v2_fix_encoding_on_edit', `prohibit_v24', `write_v24' with sane defaults.
+ instead of MCDI frame, autofills TXXX[MCDI-fulltoc] (since MCDI is supposed
+   to be the "short TOC", and I do not know how to reduce one to another,
+   and know only how to easily read the "full TOC"; please advice if you know).
+
+	[For best results, it is better to rename MCDI frame if it was
+	 autofilled with v0.9709:
+	   mp3info2 -u@P "mi/@{MCDI}/@{TXXX[MCDI-fulltoc]}///m//@{MCDI}" f.mp3
+	]
+
+   Due to these changes, the mess of fixing broken encodings is more or
+   less resolved now (before, it was easy to read tags with broken
+   encoding, but not edit it).  Likewise, reading genre is much easier now
+   (but setting multipart genre may still be some challenge).
+
+[If there are some problems with reading v2.4 tags, I would like to hear about
+ them; likewise, I beg for code donation for better writing of v2.4 tags.]
+
+mp3info2: new option -N to switch off "smart-alec interface";
+  -F allows human-oriented identifiers: composer,text_by,orchestra,conductor
+  will only call autoinfo() if needed (useful for copying ID3 frames, so
+    that they are not modified before copying);
+  better logic in choosing when to emit "Performer:" line.
+  beef up docs.
+
+typeset_audio_dir: could try to print total time even without -T.
+
+audio_rename: pacify some warnings; better docs.
+
+New scripts in examples: fulltoc_2fake_cddb.pl dir_mp3_2fake_cddb.pl
+	inf_2fake_cddb cddb2cddb 
+
 Release Name: 0.9709
 ====================
 

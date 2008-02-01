@@ -7,7 +7,7 @@
 # Change 1..1 below to 1..last_test_to_print .
 # (It may become useful if the test is moved to ./t subdirectory.)
 
-BEGIN { $| = 1; print "1..93\n"; $ENV{MP3TAG_SKIP_LOCAL} = 1}
+BEGIN { $| = 1; print "1..134\n"; $ENV{MP3TAG_SKIP_LOCAL} = 1}
 END {print "MP3::Tag not loaded :(\n" unless $loaded;}
 use MP3::Tag;
 $loaded = 1;
@@ -25,6 +25,7 @@ ok(1,"MP3::Tag initialized");
 $mp3 = MP3::Tag->new("test12.mp3");
 ok($mp3, "Got tag");
 ok(scalar ($mp3->set_id3v2_frame('TIT1','this is my tit1'),1), "set_id3v2_frame");
+ok(scalar ($mp3->set_id3v2_frame('TCON','(254)(102)CHANSON(101)'),1), "set_id3v2_frame TCON");
 
 ok($mp3->{ID3v2}, "ID3v2 tag autocreated");
 ok(($mp3->{ID3v2} and $mp3->{ID3v2}->write_tag),"Writing ID3v2");
@@ -32,13 +33,31 @@ ok(($mp3->{ID3v2} and $mp3->{ID3v2}->write_tag),"Writing ID3v2");
 $mp3 = MP3::Tag->new("test12.mp3");
 
 ok($mp3->title() eq 'this is my tit1',"Got ID3v2");
+ok($mp3->genre() eq '(254) / Chanson / Speech',"ID3v2 TCON parsed");
+
+my $res = $mp3->interpolate('aa%{ID3v2:<<%{frames/, }>>}bb');
+ok($res =~ /^aa<<(\w{4}, )+\w{4}>>bb$/, "%{frames} interpolates in conditional");
+
+{local *F; open F, '>test12.mp3' or warn; print F 'empty'}
+
+$mp3 = MP3::Tag->new("test12.mp3");
+ok($mp3, "Got tag");
+ok(($mp3->update_tags({genre => '(254)CHANSONNETTE(102)'})),"Update tags");
+
+$mp3 = MP3::Tag->new("test12.mp3");
+
+ok($mp3->genre() eq '(254) / CHANSONNETTE / Chanson',"ID3v2 TCON parsed");
+ok($mp3->{ID3v2}, "ID3v2 tag autocreated");
+ok($mp3->{ID3v1}, "ID3v1 tag autocreated");
+#warn "<<", $mp3->{ID3v1}->genre(), ">>\n";
+ok($mp3->{ID3v1}->genre() eq 'Chanson',"ID3v1 genre was set");
 
 {local *F; open F, '>test12.mp3' or warn; print F 'empty'}
 
 $mp3 = MP3::Tag->new("test12.mp3");
 ok($mp3, "Got tag");
 
-my $res = $mp3->parse('%{TIT2}', 'another tit1');
+$res = $mp3->parse('%{TIT2}', 'another tit1');
 ok($res, "parse %{TIT2}");
 ok(1 == scalar keys %$res, "1 key");
 #warn keys %$res;
@@ -143,7 +162,8 @@ sub has_1 ($;$) {
   # print STDERR "off=$p ($f) ", -s $f, "\n";
   return 0 unless $p >= $off;
   seek F, -$off, 2 or die "seek -$off: $!";
-  read F, my $in, 1 or die;
+  my $in;
+  read F, $in, 1 or die;
   close F or die;
   return $in eq "\1";
 }
@@ -209,6 +229,63 @@ ok($mp3->interpolate("%{TXXX[$id]||$id0}") eq 'Val', "Frame is ||-interpolatable
 ok($mp3->interpolate("%{TXXX[o$id]||%{TXXX[$id]}}") eq 'Val', "Frame is ||-interpolatable with a frame in expansion");
 ok($mp3->interpolate("%{TXXX[$id]&TXXX[$id]&TXXX[o$id]&TXXX[$id]}") eq 'Val; Val; Val', "Frame is &-interpolatable");
 ok($mp3->update_tags(), 'update');
+
+my $gif = <<EOF;
+47 49 46 38  37 61 04 00  04 00 F0 00  00 02 02 02
+00 00 00 2C  00 00 00 00  04 00 04 00  00 02 04 84
+8F 09 05 00  3B
+EOF
+$gif = join '', map chr hex, split /\s+/, $gif;
+ok(37 == length $gif, 'correct gif data');
+
+{local *F; open F, '>t_gif.mp3' or warn; print F 'empty'}
+
+$mp3 = MP3::Tag->new("t_gif.mp3");
+ok($mp3, "Got tag");
+ok($mp3->select_id3v2_frame_by_descr('APIC[try]', $gif), 'APIC set');
+ok($mp3->update_tags(), 'update');
+
+ok($mp3 = MP3::Tag->new("t_gif.mp3"), 'reinit');
+ok($gif eq $mp3->select_id3v2_frame_by_descr('APIC[try]'), 'APIC read');
+ok($gif eq $mp3->select_id3v2_frame_by_descr('APIC(Cover (front))[try]'), 'APIC read with picture type');
+ok(!defined $mp3->select_id3v2_frame_by_descr('APIC(Cover (back))[try]'), 'APIC with missing picture type');
+ok($gif eq $mp3->select_id3v2_frame_by_descr('APIC(Cover (front),Composer)[try]'), 'APIC read with 3 picture types');
+ok($gif eq $mp3->select_id3v2_frame_by_descr('APIC(Artist/performer,Cover (front),Composer)[try]'), 'APIC read with 3 picture types');
+ok($gif eq $mp3->select_id3v2_frame('APIC','try',['Artist/performer','Cover (front)','Composer']), 'APIC read lower-level with 3 picture types');
+
+{local *F; open F, '>t_gif1.mp3' or warn; print F 'empty'}
+
+$mp3 = MP3::Tag->new("t_gif1.mp3");
+ok($mp3, "Got tag");
+ok($mp3->select_id3v2_frame_by_descr('APIC(Cover (back))[try]', $gif), 'APIC set');
+ok($mp3->update_tags(), 'update');
+
+ok($mp3 = MP3::Tag->new("t_gif1.mp3"), 'reinit');
+ok($gif eq $mp3->select_id3v2_frame_by_descr('APIC[try]'), 'APIC read');
+ok($gif eq $mp3->select_id3v2_frame_by_descr('APIC(Cover (back))[try]'), 'APIC read with picture type');
+ok(!defined $mp3->select_id3v2_frame_by_descr('APIC(Cover (front))[try]'), 'APIC with missing picture type');
+ok($gif eq $mp3->select_id3v2_frame_by_descr('APIC(Cover (back),Composer)[try]'), 'APIC read with 3 picture types');
+ok($gif eq $mp3->select_id3v2_frame_by_descr('APIC(Artist/performer,Cover (back),Composer)[try]'), 'APIC read with 3 picture types');
+ok($gif eq $mp3->select_id3v2_frame('APIC','try',['Artist/performer','Cover (back)','Composer']), 'APIC read lower-level with 3 picture types');
+
+{local *F; open F, '>t_gif2.mp3' or warn; print F 'empty'}
+
+$mp3 = MP3::Tag->new("t_gif2.mp3");
+ok($mp3, "Got tag");
+ok($mp3->select_id3v2_frame('APIC', 'try', 'Cover (back)', $gif), 'APIC set');
+ok($mp3->update_tags(), 'update');
+
+ok($mp3 = MP3::Tag->new("t_gif2.mp3"), 'reinit');
+ok($gif eq $mp3->select_id3v2_frame_by_descr('APIC[try]'), 'APIC read');
+ok($gif eq $mp3->select_id3v2_frame_by_descr('APIC(Cover (back))[try]'), 'APIC read with picture type');
+ok(!defined $mp3->select_id3v2_frame_by_descr('APIC(Cover (front))[try]'), 'APIC with missing picture type');
+ok($gif eq $mp3->select_id3v2_frame_by_descr('APIC(Cover (back),Composer)[try]'), 'APIC read with 3 picture types');
+ok($gif eq $mp3->select_id3v2_frame_by_descr('APIC(Artist/performer,Cover (back),Composer)[try]'), 'APIC read with 3 picture types');
+ok($gif eq $mp3->select_id3v2_frame('APIC','try',['Artist/performer','Cover (back)','Composer']), 'APIC read lower-level with 3 picture types');
+
+my @descr = $mp3->id3v2_frame_descriptors();
+print "# descr = @descr\n";
+ok(scalar grep($_ eq 'APIC(Cover (back))[try]', @descr), 'descriptor found');
 
 my @failed;
 #@failed ? die "Tests @failed failed.\n" : print "All tests successful.\n";

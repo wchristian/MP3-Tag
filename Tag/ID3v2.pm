@@ -10,9 +10,10 @@ use strict;
 use File::Basename;
 # use Compress::Zlib;
 
-use vars qw /%format %long_names %res_inp @supported_majors %v2names_to_v3 $VERSION @ISA/;
+use vars qw /%format %long_names %res_inp @supported_majors %v2names_to_v3
+	     $VERSION @ISA %field_map %field_map_back/;
 
-$VERSION="0.9709";
+$VERSION="0.9710";
 @ISA = 'MP3::Tag::__hasparent';
 
 my $trustencoding = $ENV{MP3TAG_DECODE_UNICODE};
@@ -250,7 +251,7 @@ Otherwise it extracts the contents of the frame. Frames in ID3v2 tags can be
 very small, or complex and huge. That is the reason, that C<get_frame> returns
 the frame data in two ways, depending on the tag.
 
-If it is a simple tag, with only one piece of data, this date is returned
+If it is a simple tag, with only one piece of data, these data is returned
 directly as ($info, $name), where $info is the text string, and $name is the
 long (english) name of the frame.
 
@@ -264,10 +265,18 @@ If the name starts with a underscore (as eg '_code'), the data is probably
 binary data and not printable. If the name starts without an underscore,
 it should be a text string and printable.
 
-If the second parameter 'raw' is given, the whole frame data is returned,
-but not the frame header.  If the second parameter is 'intact', no mangling
+If the second parameter is given as C<'raw'>, the whole frame data is returned,
+but not the frame header.  If the second parameter is C<'intact'>, no mangling
 of embedded C<"\0"> and trailing spaces is performed.  If the second parameter
-is 'hash', then, additionally, the result is always in the hash format.
+is C<'hash'>, then, additionally, the result is always in the hash format;
+likewise, if it is C<'array'>, the result is an array reference (with C<key
+=E<gt> value> pairs same as with C<'hash'>, but ordered as in the frame).
+If it is C<'array_nokey'>, only the "value" parts are returned (in particular,
+the result is suitable to give to add_frame(), change_frame()); in addition,
+if it is C<'array_nodecode'>, then keys are not returned, and the setting of
+C<decode_encoding_v2> is ignored.  (The "return array" flavors don't massage
+the fields for better consumption by humans, so the fields should be in format
+suitable for frame_add().)
 
 If the data was stored compressed, it is
 uncompressed before it is returned (even in raw mode). Then $info contains a string
@@ -289,7 +298,7 @@ type were present; the removed frames are returned as C<undef>.
 =cut
 
 sub get_frame {
-    my ($self, $fname, $raw)=@_;
+    my ($self, $fname, $raw) = @_;
     $self->get_frame_ids() unless exists $self->{frameIDs};
     my ($e, @extra) = 0;				# More frames follow?
     $e = $self->{extra_frames}->{$fname} || 0
@@ -297,7 +306,7 @@ sub get_frame {
     @extra = map scalar $self->get_frame((sprintf "%s%02d", $fname, $_), $raw),
             1..$e;
     $e = grep defined, @extra;
-    my $frame=$self->{frames}->{$fname};
+    my $frame = $self->{frames}->{$fname};
     return unless defined $frame or $e;
     $fname = substr ($fname, 0, 4);
     return (undef, $long_names{$fname}, @extra) unless defined $frame;
@@ -327,25 +336,31 @@ sub get_frame {
 	warn "$fname: Wrong size of uncompressed data\n" if $usize=!length($result);
     }
 
-    if (defined $raw and $raw eq 'raw') {
-      return ($result, $long_names{$fname}, @extra) if (wantarray);
+    if (($raw ||= 0) eq 'raw') {
+      return ($result, $long_names{$fname}, @extra) if wantarray;
       return $result;
     }
 
     my $format = get_format($fname);
     if (defined $format) {
+      my($as_arr, $nodecode);
+      $as_arr = 2   if $raw eq 'array';
+      $as_arr = 1   if $raw eq 'array_nokey' or $raw eq 'array_nodecode';
+      $nodecode = 1 if $raw eq 'array_nodecode';
       $format = [map +{%$_}, @$format], $format->[-1]{data} = 1
-	if defined $raw and ($raw eq 'intact' or $raw eq 'hash');
-      $result = extract_data($self, $result, $format);
-      unless (defined $raw and $raw eq 'hash') {
+	if $raw eq 'intact' or $raw eq 'hash' or $as_arr;
+      $result = extract_data($self, $result, $format, $nodecode, $as_arr);
+      unless ($as_arr or $raw eq 'hash') {
 	my $k = scalar keys %$result;
 	$k-- if exists $result->{encoding};
 	if ($k == 1) {
 	  if (exists $result->{Text}) {
-	    $result= $result->{Text};
+	    $result = $result->{Text};
 	  } elsif (exists $result->{URL}) {
-	    $result= $result->{URL};
-	  }
+	    $result = $result->{URL};
+	  } elsif ($fname =~ /^MCDI/) {		# Per ID3v2-Data.pod
+	    $result = $result->{_Data};
+	  }	# In fact, no other known frame has one element
 	}
       }
     }
@@ -358,12 +373,34 @@ sub get_frame {
 
 *getFrame= \&get_frame;
 
+=item get_frame_descr()
+
+  $long_name = $self->get_frame_descr($fname);
+
+returns a "long name" for the frame (such as C<COMM(eng)[lyricist birthdate]>),
+appropriate for interpolation, or for frame_select_by_descr().
+
+=item get_frame_descriptors()
+
+  @long_names = $self->get_frame_descriptors();
+
+return "long names" for the frames in the tag (see C<get_frame_descr>).
+
+=cut
+
 sub get_frame_descr {
     my ($self, $fname)=@_;
     (undef, my $frame) = $self->get_frames($fname); # Ignore the rest
     return unless defined $frame;
     return $fname unless ref $frame;
     my $k = scalar keys %$frame;
+    if ($k == 5 and $fname eq 'APIC') {
+      return $fname unless
+	$frame->{'MIME type'} eq $self->_Data_to_MIME($frame->{_Data});
+      delete $frame->{'MIME type'};
+      $k--;
+      $frame->{Language} = delete $frame->{'Picture Type'};
+    }
     return $fname unless $k <= 4; # encoding, Language, Description + 1
     $k-- if exists $frame->{encoding};
     return $fname unless $k <= 3;
@@ -592,7 +629,7 @@ sub get_frames {
 
 =item as_bin()
 
-  $tag2 = $id3v2->as_bin($ignore_error, $update_file);
+  $tag2 = $id3v2->as_bin($ignore_error, $update_file, $raw_ok);
 
 Returns the the current content of the ID3v2 tag as a string good to
 write to a file; it contains all the necessary footers and headers.
@@ -615,6 +652,15 @@ space in the file, one needs to add some 0 padding at the end.  Note that
 if the size of reserved space can shrink (as with C<id3v2_shrink> configuration
 option), then without this option it would be hard to calculate necessary
 padding by hand.
+
+If $raw_ok option is given, but not $update_file, the original contents
+is returned for unmodified tags.
+
+=item as_bin_raw()
+
+  $tag2 = $id3v2->as_bin_raw($ignore_error, $update_file);
+
+same as as_bin() with $raw_ok flag.
 
 =item write_tag()
 
@@ -647,10 +693,20 @@ If the tag is written successfully, 1 is returned.
 
 =cut
 
-sub as_bin ($;$$) {
+sub as_bin_raw ($;$$) {
     my ($self, $ignore_error, $update_file) = @_;
+    $self->as_bin($ignore_error, $update_file, 1);
+}
 
-    if ($self->{major}>4) {
+sub as_bin ($;$$$) {
+    my ($self, $ignore_error, $update_file, $raw_ok) = @_;
+
+    return $self->{raw_data}
+      if $raw_ok and $self->{raw_data} and not $self->{modified} and not $update_file;
+
+    die "Writing of ID3v2.4 is not fully supported (prohibited now via `write_v24').\n"
+      if $self->{major} == 4 and not $self->getconfig1('write_v24');
+    if ($self->{major} > 4) {
 	    warn "Only writing of ID3v2.3 (and some tags of v2.4) is supported. Cannot convert ID3v".
 	      $self->{version}." to ID3v2.3 yet.\n";
 	    return undef;
@@ -718,6 +774,8 @@ sub as_bin ($;$$) {
 
 sub write_tag {
     my ($self,$ignore_error) = @_;
+    $self->fix_frames_encoding()
+	if $self->get_config1('id3v2_fix_encoding_on_write');
     my $tag = $self->as_bin($ignore_error, 'update_file, with_padding');
     return 0 unless defined $tag;
 
@@ -839,13 +897,12 @@ sub add_frame {
 	@data = map {""} @$format;
     }
 
-    my $encoding=0;
-    my $defenc=0;
-    $defenc = 1 if (($#data == ($args - 1)) && ($format->[0]->{name} eq "_encoding"));
-    return 0 unless $#data == $args || defined $defenc;
+    my($encoding, $calc_enc, $e) = (0,0);	# Need to calculate encoding?
+    $calc_enc = 1 if $#data == $args - 1 and $format->[0]->{name} eq "_encoding";
+    return 0 unless $#data == $args or $calc_enc;
 
     my ($datastring, $have_high) = "";
-    if ($defenc) {
+    if ($calc_enc) {
         my @d = @data;
         foreach my $fs (@$format) {
             $have_high = 1 if $fs->{encoded} and $d[0] and $d[0] =~ /[^\x00-\xff]/;
@@ -854,13 +911,11 @@ sub add_frame {
     }
     foreach my $fs (@$format) {
 	if ($fs->{name} eq "_encoding") {
-	    if ($defenc) {
+	    if ($calc_enc) {
 		$encoding = ($have_high ? 1 : 0);	# v2.3 only has 0, 1
 	    } else {
 		$encoding = shift @data;
 	    }
-	    #warn "Encoding of text not supported yet\n" if $encoding;
-	    #$encoding = 0; # other values are not used yet, so let's not write them in a tag
 	    $datastring .= chr($encoding);
 	    next;
 	}
@@ -894,15 +949,20 @@ sub add_frame {
 	    # 2 = UTF-16be, no BOM
 	    # 3 = UTF-8
 	    require Encode;
-	    if ($defenc or $encode_utf8) {
+	    if ($calc_enc or $encode_utf8) {	# e_u8==1 by default
 	      $d = Encode::encode($enc_types[$encoding], $d);
 	    } elsif ($encoding < 3) {
 	      # Reencode from UTF-8
 	      $d = Encode::decode('UTF-8', $d);
 	      $d = Encode::encode($enc_types[$encoding], $d);
 	    }
-	  } elsif (0) {	# $encoding == 0...
-		# Guessing not done yet
+	  } elsif (not $self->{fixed_encoding}	# Now $encoding == 0...
+		   and $self->get_config1('id3v2_fix_encoding_on_edit')
+		   and $e = $self->botched_encoding()
+		   and do { require Encode; Encode::decode($e, $d) ne $d }) {
+	    # If the current string is interpreted differently
+	    # with botched_encoding, need to unbotch...
+	    $self->fix_frames_encoding();
 	  }
 	}
 	$datastring .= $d;
@@ -1022,9 +1082,8 @@ without any additional information about the data format of
 this field. Names beginning with an underscore (normally '_data')
 can contain binary data.
 
-$resp_inp is a reference to an array, which contains information about
-a restriction for the content of the data field ( coresspodending to
-the same array field in the @$data array).
+$resp_inp is a reference to a hash (keyed by the field name) describing
+restrictions for the content of the data field.
 If the entry is undef, no restriction exists. Otherwise it is a hash.
 The keys of the hash are the allowed input, the correspodending value
 is the value which should stored later in that field. If the value
@@ -1041,7 +1100,7 @@ C<  {"Other" => "\x00",
 
 =cut
 
-sub what_data{
+sub what_data {
     my ($self, $fname)=@_;
     $fname = substr $fname, 0, 4;   # delete 01 etc. at end
     return if length($fname)==3;    #id3v2.2 tags are read-only and should never be written
@@ -1054,19 +1113,11 @@ sub what_data{
         next unless exists $_->{name};
 	push @data, $_->{name} unless $_->{name} eq "_encoding";
 	next unless $reswanted;
-	my $key=$fname . $_->{name};
-	if (exists($res_inp{$key})) {
-	    if ($res_inp{$key} =~ /CODE/) {
-		$res{$_->{name}}= $res_inp{$key}->(1,1);
-	    } else {
-		$res{$_->{name}}= $res_inp{$key};
-	    }
-	}
+	my $key = $fname . $_->{name};
+	$res{$_->{name}} = $field_map{$key} if exists $field_map{$key};
     }
 
-    if ($reswanted) {
-	return (\@data, \%res);
-    }
+    return(\@data, \%res) if $reswanted;
     return \@data;
 }
 
@@ -1212,84 +1263,129 @@ be lowercase 3-letter abbreviation according to ISO-639-2).  If new
 frame is created, the frame's name is returned; otherwise the count of
 removed frames is returned.
 
+As a generalization, APIC frames are handled too, using C<Picture Type>
+instead of <Language>, and auto-calculating C<MIME type> for TIFF/JPEG/GIF/PNG.
+Only frames with C<MIME type> coinciding with the auto-calculated value
+are considered as "simple frames".  One can use both the 1-byte format for
+C<Picture Type>, and the long names used in the ID3v2 documentation; the
+default value is C<'Cover (front)'>.
+
 =cut
 
-sub __to_lang($) {my $l = shift; return $l if $l eq 'XXX'; lc $l}
+sub __to_lang($$) {my $l = shift; return $l if shift or $l eq 'XXX'; lc $l}
+
+# XXXX Not finished yet?
+my %as_lang = ('APIC', ['Picture Type', chr 3]); # "Cover (front)"
+my %MT = ("\xff\xd8\xff\xe0" => 'image/jpeg', "MM\0*" => 'image/tiff',
+	   "II*\0" => 'image/tiff', "\x89PNG",
+	  qw(image/png GIF8 image/gif BM image/bmp));
+
+sub _Data_to_MIME ($$;$$) {
+  my($self, $data) = (shift, shift);	# Fname, field name remain
+  $MT{substr $data, 0, 4} || $MT{substr $data, 0, 2} || 'application/octet-stream';
+}
 
 sub _frame_select {
     # "Quadratic" in number of comment frames and select-short/lang specifiers
-    my ($self, $content, $fname) = (shift, shift, shift);
+    my ($self, $extract_content, $fname) = (shift, shift, shift);
     my ($shorts, $languages, $newcontent) = @_;
 #      or ($fname eq 'COMM' and return $self->_comment());	# ???
     $shorts = [$shorts] if defined $shorts and not ref $shorts;
+    my $lang_special = $as_lang{$fname};
+    my $lang_field = ($lang_special ? $lang_special->[0] : 'Language');
+    my $languages_mangled;
+
     if (defined $languages) {
 	$languages = [$languages] unless ref $languages;
-	@$languages = map __to_lang($_), @$languages;
+	if ($lang_special) {
+	  my $m = $field_map{"$fname$lang_field"};
+	  if ($m) {	# Below we assume that mapped values are not ''...
+	    @$languages_mangled = map( (exists $m->{$_} ? $m->{$_} : $_), @$languages);
+	    my $m1 = $field_map_back{"$fname$lang_field"} or die;
+	    my $loose = $m->{_FREE};
+	    @$languages = map( (exists $m1->{$_} ? $m1->{$_} : $_), @$languages_mangled);
+	    map( ($_ eq '' or exists $m1->{$_} or $loose
+ or die "Unknown value `$_' for field `$lang_field' of frame $fname"),
+		 @$languages_mangled);
+	  }
+	} else {
+	  @$languages = map __to_lang($_, 0), @$languages;
+	}
     }
-    my @info = get_frames($self, $fname);
-    shift @info;
-    my $c;
-    my @by_lang;
+    my @found_frames = get_frames($self, $fname);
+    shift @found_frames;
+    my(@by_lang) = (0..$#found_frames);
     # Do it the slow way...
     if (defined $languages) {
+	@by_lang = ();
+	my %seen;
 	for my $l (@$languages) {
 	    if ($l =~ /^#(\d+)$/) {
-		next if $1 >= @info;
-		push(@by_lang, [$1, $info[$1]]);
-	    } elsif (length $l > 3) {
+		push @by_lang, $1 if not $seen{$1}++ and $1 < @found_frames;
+	    } elsif (length $l > 3 and not $lang_special) {
 		die "Language `$l' should not be more than 3-chars long";
 	    } else {
-		$c = -1;
-		for my $f (@info) {
-		    $c++;
-		    push(@by_lang, [$c, $f])	# May create duplicates
-			if defined $f and (ref $f and defined $f->{Language}
-					   and $l eq __to_lang $f->{Language}
-					   or $l eq '');
+		for my $c (0..$#found_frames) {
+		    my $f = $found_frames[$c] or next;	# XXXX Needed?
+		    push @by_lang, $c
+			if ($l eq ''
+			    or ref $f and defined $f->{$lang_field}
+				      and $l eq __to_lang $f->{$lang_field}, $lang_special)
+			    and not $seen{$c}++;
 		}
 	    }
 	}
-    } else {
-	$c = -1;
-	@by_lang = map [++$c, $_], @info;
     }
     my @select;
-    for my $cc (@by_lang) {
-	($c, my $frame) = @$cc;
+    for my $c (@by_lang) {
+	my $f = $found_frames[$c];
+	my $cc = [$c, $f];
 	push(@select, $cc), next unless defined $shorts;
-	push(@select, $cc)
-	    if defined $frame and defined $frame->{Description}
-		 and grep $_ eq $frame->{Description}, @$shorts;
+	push @select, $cc
+	    if defined $f and ref $f and defined $f->{Description}
+		 and grep $_ eq $f->{Description}, @$shorts;
     }
-    return @select unless $content;
+    return @select unless $extract_content;
     if (@_ < 3) {			# Read-only access
 	return unless @select;
 	my $res = $select[0][1]; # Only defined frames here...
 	return $res unless ref $res; # TLEN
-	my $c = keys %$res;
+	my $ic = my $c = keys %$res;
 	$c-- if exists $res->{Description} and defined $shorts;
-	$c-- if exists $res->{Language} and defined $languages;
+	$c-- if exists $res->{$lang_field} and defined $languages;
 	$c-- if exists $res->{encoding};
-	return $select[0][1]->{Text} if $c <= 1 and exists $select[0][1]->{Text};
-	return $select[0][1]->{URL} if $c <= 1 and exists $select[0][1]->{URL};
-	return $select[0][1]->{_Data} if $c <= 1 and exists $select[0][1]->{_Data};
+	$c-- if $c == 2 and $ic == 5 and exists $res->{'MIME type'}
+		and exists $res->{_Data}
+		and $res->{'MIME type'} eq $self->_Data_to_MIME($res->{_Data});
+	if ($c <= 1) {
+	  return $res->{Text}  if exists $res->{Text};
+	  return $res->{URL}   if exists $res->{URL};
+	  return $res->{_Data} if exists $res->{_Data};
+        }
 	return $res;
     }
     # Write
     for my $f (reverse @select) { # Removal may break the numeration???
-	($c, my $frame) = @$f;
+	my ($c, $frame) = @$f;
 	$self->remove_frame($c ? sprintf('%s%02d', $fname, $c) : $fname);
     }
     return scalar @select unless defined $newcontent;
-    $languages = [($self->get_config('default_language'))->[0]]
-      unless defined $languages;
+    if (defined $languages) {
+      $languages = $languages_mangled if defined $languages_mangled;
+    } elsif ($lang_special) {
+      $languages = [$lang_special->[1]];
+    } else {
+      $languages = $self->get_config('default_language');	# Array ref!
+    }
     my $format = get_format($fname);
-    my $have_lang = grep $_->{name} eq 'Language', @$format;
+    my $have_lang = grep $_->{name} eq $lang_field, @$format;
     $#$languages = $have_lang - 1; # Truncate
+    unshift @$languages, $self->_Data_to_MIME($newcontent)
+      if $lang_special;		# "MIME type" field
     $shorts = ['']       unless defined $shorts;
     my $have_descr = grep $_->{name} eq 'Description', @$format;
     $#$shorts = $have_descr - 1;   # Truncate
-    $self->add_frame($fname, @$languages, @$shorts, $newcontent);
+    $self->add_frame($fname, @$languages, @$shorts, $newcontent) or die;
 }
 
 sub frame_select {
@@ -1299,7 +1395,9 @@ sub frame_select {
 
 =item frame_list()
 
-Same as frame_select(), but returns the list of found frames.
+Same as frame_select(), but returns the list of found frames, each an
+array reference with ordinal (among frames with the given short name),
+and contents.
 
 =item frame_have()
 
@@ -1344,7 +1442,7 @@ sub frames_list {
 sub _frame_select_by_descr {
     my ($self, $what, $d) = (shift, shift, shift);
     my($l, $descr) = ('');
-    if ( $d =~ s/^(\w{4})(?:\(([^)]*)\))?(?:\[(.*)\])?$/$1/ ) {
+    if ( $d =~ s/^(\w{4})(?:\(([^()]*(?:\([^()]+\)[^()]*)*)\))?(?:\[(.*)\])?$/$1/ ) {
       $l = defined $2 ? [split /,/, $2, -1] : ($what > 1 && !@_ ? '' : undef);
       $descr = $3;
       # $descr =~ s/\\([\\\[\]])/$1/g if defined $descr;
@@ -1529,7 +1627,7 @@ sub genre {
 	return if @_ == 1 and $_[0] eq '';
 	return $self->add_frame('TCON', @_);	# XXX add genreID 0x00 ?
     }
-    my $g = $self->get_frame( "TCON");
+    my $g = $self->get_frame('TCON');
     return unless defined $g;
     $g =~ s/^\d+\0(?:.)//s;		# XXX Shouldn't this be done in TCON()?
     $g;
@@ -1609,9 +1707,10 @@ sub new {
 	    }
 	    $mp3obj->read(\$self->{tag_data}, $s1);
 	    $self->{data_size} = $self->{tagsize};
+	    $self->{raw_data} = $header . $self->{tag_data};
 	    # un-unsynchronize comes in all versions first
 	    if ($self->{flags}->{unsync}) {
-		my $hits= $self->{tag_data} =~ s/\xFF\x00/\xFF/gs;
+		my $hits = $self->{tag_data} =~ s/\xFF\x00/\xFF/gs;
 		$self->{data_size} -= $hits;
 	    }
 	    # in v2.2.x complete tag may be compressed, but compression isn't
@@ -1692,11 +1791,15 @@ sub read_header {
 		# extract the header data
 		my ($major, $revision, $pflags) = unpack ("x3CCC", $header);
 		# check the version
-		if ($major >= $#supported_majors or $supported_majors[$major] == 0) {
+		if ($major > $#supported_majors or $supported_majors[$major] == 0) {
 			warn "Unknown ID3v2-Tag version: v2.$major.$revision\n";
 			print "| $major > ".($#supported_majors)." || $supported_majors[$major] == 0\n";
 			print "| ",join(",",@supported_majors),"n";
 			print "$_: $supported_majors[$_]\n" for (0..5);
+			return 0;
+		}
+		if ($major == 4 and $self->get_config1('prohibit_v24')) {
+			warn "Reading ID3v2-Tag version: v2.$major.$revision is prohibited via setting `prohibit_v24'\n";
 			return 0;
 		}
 		if ($revision != 0) {
@@ -1766,26 +1869,24 @@ sub read_ext_header {	# XXXX in 2.3, it should be unsyncronized
     return 1;
 }
 
-
-# Main sub for getting data from a frame.
-
-sub extract_data {
-	my ($self, $data, $format) = @_;
-	my ($rule, $found,$encoding, $result, $e);
+sub extract_data {	# Main sub for getting data from a frame
+	my ($self, $data, $format, $noDecode, $arr) = @_;
+	my ($rule, $found,$encoding, @result, $e);
 
 	$encoding=0;
+	$arr ||= 0;			# 1: values only; 2: return array
 	foreach $rule (@$format) {
 		next if exists $rule->{v3name};
 		# get the data
-		if ( exists $rule->{mlen} ) {
-			($found, $data) = ($data, "");
-		} elsif ( $rule->{len} == 0 ) {
-			if (exists $rule->{encoded} && $encoding !=0) {
+		if ( exists $rule->{mlen} ) {	# minlength, data is string
+			($found, $data) = ($data, "");	# Never with encoding
+		} elsif ( $rule->{len} == 0 ) {	# Till \0
+			if (exists $rule->{encoded} && ($encoding =~ /^[12]$/)) {
 				($found, $data) = ($data =~ /^((?:..)*?)(?:\0\0(.*)|\z)/s);
 			} else {
 				($found, $data) = split /\x00/, $data, 2;
 			}
-		} elsif ($rule->{len} == -1) {
+		} elsif ($rule->{len} == -1) {	# Till end
 			($found, $data) = ($data, "");
 		} else {
 			$found = substr $data, 0,$rule->{len};
@@ -1801,11 +1902,11 @@ sub extract_data {
 		# work with data
 		if ($rule->{name} eq "_encoding") {
 			$encoding=unpack ("C", $found);
-			$result->{encoding} = $encoding;
+			push @result, 'encoding' unless $arr == 1;
+			push @result, $encoding;
 		} else {
-			if (exists $rule->{encoded}) {
+			if (exists $rule->{encoded}) {	# decode data
 			  if ( $encoding > 3 ) {
-			    # decode data
 			    warn "Encoding type '$encoding' not supported: found in $rule->{name}\n";
 			    next;
 			  } elsif ($encoding and not $trustencoding) {
@@ -1826,33 +1927,89 @@ sub extract_data {
 						      $found);
 			      $found = Encode::encode('UTF-8', $found);
 			    }
-			  } elsif ($e = $self->get_config('decode_encoding_v2')
-				   and $e->[0]) {
+			  } elsif (not $noDecode and $e = $self->botched_encoding) {
 			    require Encode;
-			    $found = Encode::decode( $e->[0], $found );
+			    $found = Encode::decode( $e, $found );
 			  }
 			}
 
-			$found = toNumber($found) if ( $rule->{isnum} );
+			$found = toNumber($found) if $rule->{isnum};
 
-			$found = $rule->{func}->($found) if (exists $rule->{func});
+			unless ($arr) {
+			  $found = $rule->{func}->($found) if exists $rule->{func};
 
-			unless (exists $rule->{data} || !defined $found) {
+			  unless (exists $rule->{data} || !defined $found) {
 				$found =~ s/[\x00]+$//;   # some progs pad text fields with \x00
 				$found =~ s![\x00]! / !g; # some progs use \x00 inside a text string to seperate text strings
 				$found =~ s/ +$//;        # no trailing spaces after the text
-			}
+			  }
 
-			if (exists $rule->{re2}) {
+			  if (exists $rule->{re2}) {
 				while (my ($pat, $rep) = each %{$rule->{re2}}) {
 					$found =~ s/$pat/$rep/gis;
 				}
+			  }
 			}
 			# store data
-			$result->{$rule->{name}}=$found;
+			push @result, $rule->{name} unless $arr == 1;
+			push @result, $found;
 		}
 	}
-	return $result;
+	return {@result} unless $arr;
+	return \@result;
+}
+
+sub botched_encoding ($) {
+    my($self) = @_;
+    return if $self->{fixed_encoding};
+    return unless my $enc = $self->get_config1('decode_encoding_v2');
+    # Don't recourse into TXXX[*] (inside-[] is encoded,
+    # and frame_select() reads ALL TXXX frames...)
+    local $self->{fixed_encoding} = 1;
+    return unless $self->get_config1('ignore_trusted_encoding0_v2')
+	or not $self->frame_select('TXXX', 'trusted_encoding0_v2');
+    $enc;
+}
+
+# Make editing in presence of decode_encoding_v2 more predictable:
+sub frames_need_fix_encoding ($) {
+    my($self) = @_;
+    return unless $self->botched_encoding;
+    my($fname, $rule, %fix);
+    for $fname (keys %{$self->{frames}}) {
+      my $frame = $self->{frames}->{$fname};
+      next unless defined $frame;	# XXXX Needed?
+      my $fname4 = substr ($fname, 0, 4);
+      my($result, $e) = $frame->{data};
+      my $format = get_format($fname4);
+      next unless defined $format;
+      foreach $rule (@$format) {
+	next if exists $rule->{v3name};
+	# Otherwise _encoding is the first entry
+	last if $rule->{name} ne '_encoding';
+	$e = unpack ("C", $result);
+      }
+      next unless defined $e and not $e;	# The unfortunate "latin1"
+      my $txts     = $self->get_frame($fname, 'array_nokey');
+      my $raw_txts = $self->get_frame($fname, 'array_nodecode');
+      $fix{$fname} = $txts			# Really need to fix:
+	if join("\0\0\0", @$txts) ne join("\0\0\0", @$raw_txts);
+    }
+    return unless %fix;
+    \%fix;
+}
+
+sub fix_frames_encoding ($) {	# do not touch frames unless absolutely needed
+    my($self) = @_;
+    my($fix, $fname, $txt) = $self->frames_need_fix_encoding;
+    while (($fname, $txt) = each %{$fix || {}}) {
+      shift @$txt;	# The 1st field is always _encoding; recalculate it
+      $self->change_frame($fname, @$txt) or die;
+    }
+    $self->{fixed_encoding} = 1;
+    $self->frame_select('TXXX', 'trusted_encoding0_v2', undef, 1)
+	if $self->get_config1('id3v2_set_trusted_encoding0');
+    return($fix and keys %$fix);	# Better be scalar context...
 }
 
 #Searches for a format string for a specified frame. format strings exist for
@@ -1949,10 +2106,12 @@ sub DESTROY {
 #          * len     - says how many bytes to read for this part. 0 means read until \x00, -1 means
 #                      read until end of frame, any value > 0 specifies an exact length
 #          * mlen    - specifies a minimum length for the data, real length is until end of frame
+#			(we assume it is not paired with encoding)
 #          * name    - the user sees this part of the frame under this name. If this part contains
 #                      binary data, the name should start with a _
 #                      The name "_encoding" is reserved for the encoding part of a frame, which
 #                      is handled specifically to support encoding of text strings
+#				(Is assumed to be the first entry, unless v3name)
 #          * encoded - this part has to be encoded following to the encoding information
 #          * func    - a reference to a sub, which is called after the data is extracted. It gets
 #                      this data as argument and has to return some data, which is then returned
@@ -1984,13 +2143,15 @@ sub APIC {
     my $index = unpack ("C", $byte);
     my @pictypes = ("Other", "32x32 pixels 'file icon' (PNG only)", "Other file icon",
 		    "Cover (front)", "Cover (back)", "Leaflet page",
-		    "Media (e.g. lable side of CD)", "Lead artist/lead performer/soloist",
+		    "Media (e.g. label side of CD)", "Lead artist/lead performer/soloist",
 		    "Artist/performer", "Conductor", "Band/Orchestra", "Composer",
 		    "Lyricist/text writer", "Recording Location", "During recording",
 		    "During performance", "Movie/video screen capture",
 		    "A bright coloured fish", "Illustration", "Band/artist logotype",
 		    "Publisher/Studio logotype");
-    if (defined shift) { # called by what_data
+    my $how = shift;
+    if (defined $how) { # called by what_data
+	die unless $how eq 1 and $byte eq 1;
 	my $c=0;
 	my %ret = map {$_, chr($c++)} @pictypes;
 	return \%ret;
@@ -2001,13 +2162,16 @@ sub APIC {
 }
 
 sub COMR {
-    my $number = unpack ("C", shift);
+    my $data = shift;
+    my $number = unpack ("C", $data);
     my @receivedas = ("Other","Standard CD album with other songs",
 		      "Compressed audio on CD","File over the Internet",
 		      "Stream over the Internet","As note sheets",
 		      "As note sheets in a book with other sheets",
 		      "Music on other media","Non-musical merchandise");
-    if (defined shift) {
+    my $how = shift;
+    if (defined $how) {
+	die unless $how eq 1 and $data eq 1;
 	my $c=0;
 	my %ret = map {$_, chr($c++)} @receivedas;
 	return \%ret;
@@ -2021,7 +2185,9 @@ sub PIC {
 	# and not mime type: Convert image format to mime type
 	my $data = shift;
 
-	if (defined shift) { # called by what_data
+	my $how = shift;
+	if (defined $how) { # called by what_data
+		die unless $how eq 1 and $data eq 1;
 		my %ret={};
 		return \%ret;
 	}
@@ -2038,22 +2204,24 @@ sub PIC {
 sub TCON {
     require MP3::Tag::ID3v1;
     my $data = shift;
-    if (defined shift) { # called by what_data
+    my $how = shift;
+    if (defined $how) { # called by what_data
+	die unless $how eq 1 and $data eq 1;
 	my $c=0;
 	my %ret = map {$_, "(".$c++.")"} @{MP3::Tag::ID3v1::genres()};
 	$ret{"_FREE"}=1;
 	$ret{Remix}='(RX)';
 	$ret{Cover}="(CR)";
 	return \%ret;
-    }
-    # called by extract_data
-    $data =~ s/\((\d+)\)/ MP3::Tag::ID3v1::genres($1) || "($1)" /e;
-    return $data;
+    }    # called by extract_data
+    join ' / ', MP3::Tag::Implemenation::_massage_genres($data);
 }
 
 sub TFLT {
     my $text = shift;
-    if (defined shift) {# called by what_data
+    my $how = shift;
+    if (defined $how) {	# called by what_data
+	die unless $how eq 1 and $text eq 1;
 	my %ret=("MPEG Audio"=>"MPG",
 		 "MPEG Audio MPEG 1/2 layer I"=>"MPG /1",
 		 "MPEG Audio MPEG 1/2 layer II"=>"MPG /2",
@@ -2379,6 +2547,15 @@ BEGIN {
 		   "TFLTText" => \&TFLT,
 		   "COMRReceived as" => \&COMR,
 		 );
+
+        for my $k (keys %res_inp) {
+	  my %h = %{ $field_map{$k} = $res_inp{$k}->(1,1) }; # Assign+make copy
+	  delete $h{_FREE};
+	  %h = reverse %h;
+	  $field_map_back{$k} = \%h;
+	}
+	$field_map{'APICPicture Type'}{'Media (e.g. lable side of CD)'} = 
+	  $field_map{'APICPicture Type'}{'Media (e.g. label side of CD)'};
 }
 
 =pod

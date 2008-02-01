@@ -9,11 +9,11 @@ package MP3::Tag::ID3v1;
 use strict;
 use vars qw /@mp3_genres @winamp_genres $AUTOLOAD %ok_length $VERSION @ISA/;
 
-$VERSION="0.9708";
+$VERSION="0.9710";
 @ISA = 'MP3::Tag::__hasparent';
 
 # allowed fields in ID3v1.1 and max length of this fields (except for track and genre which are coded later)
-%ok_length = (title => 30, artist => 30, album => 30, comment => 28, track => 3, genre => 30, year=>4, genreID=>1); 
+%ok_length = (title => 30, artist => 30, album => 30, comment => 28, track => 3, genre => 3000, year=>4, genreID=>1); 
 
 =pod
 
@@ -114,15 +114,16 @@ sub AUTOLOAD {
   if (@_) {
     my $new = shift;
     $new =~ s/ *$//;
-    $new = substr  $new, 0, $ok_length{$attr};
     if ($attr eq "genre") {
       if ($new =~ /^\d+$/) {
 	$self->{genreID} = $new;
       } else {
 	$self->{genreID} = genre2id($new);
+        $new = id2genre($self->{genreID})
+	  if defined $self->{genreID} and $self->{genreID} < @winamp_genres;
       }
-      $new = id2genre($self->{genreID});
     }
+    $new = substr  $new, 0, $ok_length{$attr};
     $self->{$attr}=$new;
     $self->{changed} = 1;
   }
@@ -199,6 +200,12 @@ sub fits_tag {
 	next
 	  if $elt eq 'comment' and not $hash->{track} and length $data <= 30;
 	return;
+    }
+    if ($hash->{genre}) {
+        my @g = MP3::Tag::Implemenation::_massage_genres($hash->{genre});
+	return if @g > 1;
+	my $id = MP3::Tag::Implemenation::_massage_genres($hash->{genre}, 'num');
+	return if $id eq '' or $id == 255;
     }
     if ($s =~ /[^\x00-\x7E]/) {
       my $w = ($self->get_config('encode_encoding_v1') || [0])->[0];
@@ -452,23 +459,17 @@ sub read_tag {
     }
 }
 
-# convert one byte id to genre name
+# convert small integer id to genre name
 sub id2genre {
     my $id=shift;
     return "" unless defined $id && $id<$#winamp_genres;
     return $winamp_genres[$id];
 }
 
-# convert genre name to one byte id
+# convert genre name to small integer id
 sub genre2id {
-    my $genre = shift;
-    my $i=0;
-    foreach (@winamp_genres) {
-	if (uc $genre eq uc $_) {
-	    return $i;
-	}
-	$i++,
-    }
+    my $genre = MP3::Tag::Implemenation::_massage_genres(shift, 'num');
+    return $genre if defined $genre;
     return 255;
 }
 
