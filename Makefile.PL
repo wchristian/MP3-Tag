@@ -33,7 +33,7 @@ WriteMakefile(
 				# Compress::Zlib => 0,
 			   },
     'PL_FILES'          => {'data_pod.PL'=>'ID3v2-Data.pod'},
-    'clean'             => {FILES => 'ID3v2-Data.pod'},
+ #   'clean'             => {FILES => 'ID3v2-Data.pod'},	# is included!
 );
 
 # Tell MakeMaker about manifying ID3v2-Data.pod

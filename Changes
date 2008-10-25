@@ -1,3 +1,105 @@
+Release Name: 0.9712
+====================
+
+Tag.pm:
+  _massage_genres(): 'num' is required if number is wished; new semantic with
+   'prefer_num'.
+  Make methods *_set() return TRUE.
+  In dump of frames, put explanation of frames purposes.
+  Improve the docs.
+
+ID3v2.pm: add `func_back' to frame's field descriptor.
+  add 're2b' to frame's field descriptor.
+  When adding TCOM frame, massage it back to the v2.3 conventions; now one can
+    use the same values for setting frame as returned when reading frame, even
+    in presence of multiple genres.
+  Likewise for TCOP frames (via `re2b').
+  Repeated APIC frames were not expanded in get_frame_descriptors().
+  Would not support "fake" MP3 objects.
+  Allow setting of "filtered for human" fields (except TMED) via add_frame(),
+    using both raw and human-readable forms of the corresponding argument.
+  When splitting an argument for add_frame, split from the end for
+    POPM - they have numbers at end, so it is not ambiguous.
+  AENC and COMR frames had invalid format (trailing 0 omitted from URL).
+  Dump of frames: put explanation of frames purposes, align stuff vertically.
+  Optional string fields were treated with warnings...
+  Improve the docs.
+
+ID3v1.pm: reading v1 genre immediately after setting might return numeric value.
+
+Test suite for changes (except encoding stuff and as_bin()).
+Makefile.PL was clean()ing a shipped file.
+
+Release Name: 0.9711
+====================
+
+ID3v1.pm: last winamp genre was not supported;
+  logic of checking fitting to ID3v1 was not accepting "from"ified tags;
+  add more WinAmp genres (from table in MP3::Info).
+  Avoid an elusive Perl (parser?) bug with
+   can't use string ("") as an ARRAY ref while "strict refs" in use at MP3/Tag/ID3v1.pm line 220.
+  Use the leading part of track numbers of the form NUMBER/WHATEVER.
+
+Tag.pm:
+  logic of massaging genre was not accepting "from"ified tags.
+  id3v23_unsync id3v23_unsync_size_w - better docs.
+  Minor improvements to docs.
+  New methods: "simplified" title_set(), artist_set(), album_set(),
+      year_set(), comment_set(), track_set(), genre_set();
+    _Data_to_MIME(), copy_id3v2_frames(),
+    track1(), track2(), track0(), disk1(), disk2(), disk_alphanum().
+  Prefer frame_select_by_descr_simpler() to frame_select_by_descr_simple()
+    in select_id3v2_frame_by_descr(); so we can:
+  remove special-casing of _Data in _interpolate(), and the first ("supported")
+    frame of the given type can be interpolated via, e.g., "COMM", "APIC".
+  remove setting $MP3::Info::try_harder: may loop infinitely...
+  New interpolation: %{ID3v2-size}, %{ID3v2-pad}, %{ID3v2-stripped}, %{ID3v2-modified}
+    %{out_frames/QQPRE//QQPOST}.
+  Allow condition in conditional interpolation to be a 2-char (n1 etc) escape.
+  Allow select_id3v2_frames() etc to write frames which require multiple
+    arguments to add_frame(), either by adding extra arguments, or by joining
+    arguments together with ";". [Will catch less errors, but is more flexible.]
+  _massage_genres(): extra arg must now be 'num' if number is wished; new semantic
+    with 'prefer_num'.
+
+ID3v2.pm: misprint of getconfig1, and in printout of supported versions.
+  Add some E<gt> to POD; better doc of APIC in frame_select().
+  _Data_to_MIME() documented.
+  Use "Unknown...  Error?" as string representation of unknown pictype in APIC.
+  Do extra close/open before writing ID3v2, so that the size of ID3v1 tag
+   is taken into account when calculating the "best" padding.
+  New methods: frame_select_by_descr_simpler(), add_raw_frame() [undocumented],
+    copy_frames(), add_frame_split().
+  Supports optional fields in frames for read/write (missing
+    fields not set by get_frame() etc, and should be omitted in call to add_frame).
+  allow multiple values in "write" flavor of frame_select() (as in add_frame());
+    moreover, since it calls add_frame_select(), allow joining fields into
+    one with separator=";".  [Will catch less errors, but is more flexible.]
+  For APIC/COMR frames, allow the numeric "type" argument to add_frame() to be
+    specified both as a byte, and as a stringified number (no conflict possible).
+
+audio_rename: move dependent module transliterate_win1251.pm to
+    Encode:: namespace.
+  Change the default rename recipe to use disk number, and pad track number
+    to width of the maximal track number (if known).
+
+mp3info2: With -x, print "ID3v1: present" if applicable, and ID3v2 size(s).
+  Documentation was using I(fimb) where I{fimbB} was needed.
+  Move id3v2_frames_autofill() before -p and -x.
+  Do not autofill unless -u is given, or other modifications are done to ID3v2.
+  Uses foo_set() to process -a/-t/-l/-y/-c/-n/-g options, so no "sane value" check
+    is done any more...  Also disallows "asyncroneous on-demand order of setting"
+    of these fields (but it was hardly documentable anyway)...
+  Document order of processing the options.
+  New semantics "FRAME_spec < FILE", "FRAME_spec ?< FILE", "FRAME_spec > FILE"
+    for -F option (including full-tag operations).
+  Documentation on the usage strategy: Escalation of complexity.
+  Options -d/-F/-C/-P may be repeated (old nonsense of gluing together via
+    triplication is still supported, but deprecated).
+  -x may be repeated (dumps frames).
+
+File.pm: better wording in an error message.
+
 Release Name: 0.9710
 ====================
 
@@ -10,7 +112,7 @@ Tag.pm ID3v2.pm ParseData.pm mp3info2: support Language with parentheses, as in
  "Cover (back)" (when used as "Picture type").
  Document id3v2_frame_descriptors().
  New interpolation token: %{frames}, %{frames/SEPARATOR}.
- Allow %{ID3v2: ... } and ID3v2 as conditionals.
+ Allow %{ID3v2: ... } and ID3v1 as conditionals.
  Parsing of %{composer} etc inside false conditionals was wrong.
 
 ID3v1.pm: is not confused by multipart genres (such as described by id3v2).
@@ -75,7 +177,29 @@ typeset_audio_dir: could try to print total time even without -T.
 audio_rename: pacify some warnings; better docs.
 
 New scripts in examples: fulltoc_2fake_cddb.pl dir_mp3_2fake_cddb.pl
-	inf_2fake_cddb cddb2cddb 
+	inf_2fake_cddb cddb2cddb
+
+Music_Translate_Fields.pm: renamed to Music_Normalize_Fields.pm;
+  a tiny shim module with old name added;
+  subroutines renamed from *translate* to *normalize*;
+  shim subroutines with old names added;
+  minimal docs added;
+  new subroutine read_composer_file() [cut out from load_composer()];
+  new subroutine normalize_opus();
+  better normalization of opus when followed by variants of `No.4';
+  new subroutine _normalize_piece(): as normalize_piece(), but allows
+    better control over (no) database lookup;
+  better recognition of a key ("Piece; b#");
+  support for mail-header-format databases;
+  support for shorted opus-number ids;
+  support for creation of mail-header-format databases;
+  minimal testing suite (builtin);
+  other minor improvements.
+
+Composer files: converted to mail-header format; new files for Brahms,
+Dvorak, Schnittke, Shostakovich added.  Moved to subdirectory
+`Music_Normalize_Fields'; should be relative to Music_Normalize_Fields.pm
+
 
 Release Name: 0.9709
 ====================

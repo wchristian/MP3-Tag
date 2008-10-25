@@ -38,7 +38,7 @@ use MP3::Tag::ParseData;
 use MP3::Tag::LastResort;
 
 use vars qw/$VERSION @ISA/;
-$VERSION="0.9710";
+$VERSION="0.9712";
 @ISA = qw( MP3::Tag::User MP3::Tag::Site MP3::Tag::Vendor
 	   MP3::Tag::Implemenation ); # Make overridable
 *config = \%MP3::Tag::Implemenation::config;
@@ -113,9 +113,20 @@ MP3::Tag - Module for reading tags of MP3 audio files
 
   # get some information about the file in the easiest way
   ($title, $track, $artist, $album, $comment, $year, $genre) = $mp3->autoinfo();
+  # Or:
   $comment = $mp3->comment();
+  $dedicated_to
+    = $mp3->select_id3v2_frame_by_descr('COMM(fre,fra,eng,#0)[dedicated to]');
 
-  # or have a closer look on the tags
+  $mp3->title_set('New title');		# Edit in-memory copy
+  $mp3->select_id3v2_frame_by_descr('TALB', 'New album name'); # Edit in memory
+  $mp3->select_id3v2_frame_by_descr('RBUF', $n1, $n2, $n3);    # Edit in memory
+  $mp3->update_tags(year => 1866);	# Edit in-memory, and commit to file
+  $mp3->update_tags();			# Commit to file
+
+The following low-level access code is discouraged; better use title()
+etc., title_set() etc., update_tags(), select_id3v2_frame_by_descr()
+etc. methods on the wrapper $mp3:
 
   # scan file for existing tags
   $mp3->get_tags;
@@ -144,6 +155,10 @@ MP3::Tag - Module for reading tags of MP3 audio files
 
   $mp3->close();
 
+Please consider using the script F<mp3info2>; it allows simple access
+to most features of this module via command-line options; see
+L<mp3info2>.
+
 =head1 AUTHORS
 
 Thomas Geffert, thg@users.sourceforge.net
@@ -151,14 +166,14 @@ Ilya Zakharevich, ilyaz@cpan.org
 
 =head1 DESCRIPTION
 
-Tag is a wrapper module to read different tags of mp3 files. 
-It provides an easy way to access the functions of seperate modules
-which do the handling of reading/writing the tags itself.
+C<MP3::Tag> is a wrapper module to read different tags of mp3 files.
+It provides an easy way to access the functions of separate modules which
+do the handling of reading/writing the tags itself.
 
-At the moment MP3::Tag::ID3v1 and MP3::Tag::ID3v2 are supported for read
-and write; MP3::Tag::Inf, MP3::Tag::CDDB_File, MP3::Tag::File, MP3::Tag::LastResort are
-supported for read access (the information obtained by parsing CDDB files,
-F<.inf> file and the filename).
+At the moment MP3::Tag::ID3v1 and MP3::Tag::ID3v2 are supported for
+read and write; MP3::Tag::Inf, MP3::Tag::CDDB_File, MP3::Tag::File,
+MP3::Tag::LastResort are supported for read access (the information
+obtained by parsing CDDB files, F<.inf> file and the filename).
 
 =over 4
 
@@ -475,7 +490,90 @@ access the corresponding fields returned by parse() method of CDDB_File.
 
 access the corresponding methods of C<ID3v2>, C<Inf> or C<CDDB_File>.
 
+=item title_set(), artist_set(), album_set(), year_set(), comment_set(), track_set(), genre_set()
+
+  $mp3->title_set($newtitle, [$force_id3v2]);
+
+Set the corresponding value in ID3v1 tag, and, if the value does not fit,
+or force_id3v2 is TRUE, in the ID3v2 tag.  Changes are made to in-memory
+copy only.  To propagate to the file, use update_tags() or similar methods.
+
+=item track1()
+
+Same as track(), but strips trailing info: if track() returns C<3/12>
+(which means track 3 of 12), this method returns C<3>.
+
+=item track2()
+
+Returns the second part of track number (compare with track1()).
+
+=item track0()
+
+Same as track1(), but pads with leading 0s to width of track2(); takes an
+optional argument (default is 2) giving the pad width in absense of track2().
+
+=item disk1(), disk2()
+
+Same as track1(), track2(), but with disk-number instead of track-number
+(stored in C<TPOS> ID3v2 frame).
+
+=item disk_alphanum()
+
+Same as disk1(), but encodes a non-empty result as a letter (1 maps to C<a>,
+2 to C<b>, etc).  If number of disks is more than 26, falls back to numeric
+(e.g, C<3/888> will be encoded as C<003>).
+
 =cut
+
+sub track1 ($) {
+  my $r = track(@_);
+  $r =~ s(/.*)()s;
+  $r;
+}
+
+sub track2 ($) {
+  my $r = track(@_);
+  return '' unless $r =~ s(^.*?/)()s;
+  $r;
+}
+
+sub track0 ($) {
+  my $self = shift;
+  my $d = (@_ ? shift() : 2);
+  my $r = $self->track();
+  return '' unless defined $r;
+  (my $r1 = $r) =~ s(/.*)()s;
+  $r = 'a' x $d unless $r =~ s(^.*?/)()s;
+  my $l = length $r;
+  sprintf "%0${l}d", $r1;
+}
+
+sub disk1 ($) {
+  my $self = shift;
+  my $r = $self->select_id3v2_frame('TPOS');
+  return '' unless defined $r;
+  $r =~ s(/.*)()s;
+  $r;
+}
+
+sub disk2 ($) {
+  my $self = shift;
+  my $r = $self->select_id3v2_frame('TPOS');
+  return '' unless defined $r;
+  return '' unless $r =~ s(^.*?/)()s;
+  $r;
+}
+
+sub disk_alphanum ($) {
+  my $self = shift;
+  my $r = $self->select_id3v2_frame('TPOS');
+  return '' unless defined $r;
+  (my $r1 = $r) =~ s(/.*)()s;
+  $r = $r1 unless $r =~ s(^.*?/)()s;	# max(disk2, disk1)
+  return chr(ord('a') - 1 + $r1) if $r <= 26;
+  my $l = length $r;
+  sprintf "%0${l}d", $r1;
+}
 
 my %ignore_0length = qw(ID3v1 1 CDDB_File 1 Inf 1);
 
@@ -531,16 +629,21 @@ for my $elt ( qw( comment_collection comment_track title_track artist_collection
   }
 }
 
-for my $elt ( qw(  ) ) {	# Unfinished...
+for my $elt ( qw(title artist album year comment track genre) ) {
   no strict 'refs';
-  *$elt = sub (;$) {
-    my $self = shift;
-    local $self->{__proxy}[0] = $self unless $self->{__proxy}[0] or $ENV{MP3TAG_TEST_WEAKEN};
-    $self->get_tags;
-    return unless exists $self->{CDDB_File};
-    my $v = $self->{CDDB_File}->$elt();
-    return unless defined $v;
-    $v;
+  *{"${elt}_set"} = sub ($$;$) {
+    my ($mp3, $val, $force2) = (shift, shift, shift);
+
+    $mp3->get_tags;
+    $mp3->new_tag("ID3v1") unless exists $mp3->{ID3v1};
+    $mp3->{ID3v1}->$elt( $val );
+
+    return 1
+      if not $force2 and $mp3->{ID3v1}->fits_tag({$elt => $val})
+	and not exists $mp3->{ID3v2};
+
+    $mp3->new_tag("ID3v2") unless exists $mp3->{ID3v2};
+    $mp3->{ID3v2}->$elt( $val );
   }
 }
 
@@ -805,18 +908,34 @@ pattern.
 
 =item id3v23_unsync_size_w
 
-Version 2.3 if the standard is not clear about frame size field, whether it
-is the size of the frame after unsyncronization, or not.  Old versions
-were assuming that this size is one before unsyncronization (as in v2.2).
-Setting these values will assume another interpretation (as in v2.4) for
-write; experimental - to test why ITunes refuse to
-handle unsyncronized tags.
+Old experimental flag to test why ITunes refuse to handle unsyncronized tags
+(does not help, see L<id3v23_unsync>).  The idea was that
+version 2.3 of the standard is not clear about frame size field, whether it
+is the size of the frame after unsyncronization, or not.  We assume
+that this size is one before unsyncronization (as in v2.2).
+Setting this value to 1 will assume another interpretation (as in v2.4) for
+write.
 
 =item id3v23_unsync
 
 Some broken MP3 players (e.g., ITunes, at least up to v6) refuse to
 handle unsyncronized (e.g., written as the standard requires it) tags;
 they may need this to be set to FALSE.  Default: TRUE.
+
+(Some details: by definition, MP3 files should contain combinations of bytes
+C<FF F*> or C<FF E*> only at the start of audio frames ("syncronization" points).
+ID3v2 standards take this into account, and suppose storing raw tag data
+in a format which does not contain these combinations of bytes
+["unsyncronization"].  Itunes etc do not only emit broken MP3 files
+[which cause severe hiccups in players which do not know how to skip ID3v2
+tags], they also refuse to read ID3v2 tags written in a correct,
+unsyncronized, format.)
+
+(Note also that the issue of syncronization is also applicable to ID3v1
+tags; however, since this data is near the end of the file, many players
+are able to recognize that the syncronization points in ID3v1 tag cannot
+start a valid frame, since there is not enough data to read; some other
+players would hiccup anyway...)
 
 =item encoded_v1_fits
 
@@ -1136,13 +1255,13 @@ sub is_id3v2_modified ($$;@) {
   $frame = $mp3->select_id3v2_frame($fname, $descrs, $langs [, $VALUE]);
 
 Returns the specified frame(s); has the same API as
-L<MP3::Tag::ID3v2::frame_select> (args are frame name, list of wanted
-Descriptors, list of wanted Languages, and possibly the new contents - with
-C<undef> meaning deletion).  For read-only access it returns C<undef> if no
-ID3v2 tag is present.
+L<MP3::Tag::ID3v2/frame_select> (args are the frame name, the list of
+wanted Descriptors, list of wanted Languages, and possibly the new
+contents - with C<undef> meaning deletion).  For read-only access it
+returns empty if no ID3v2 tag is present, or no frame is found.
 
-If new context is specified, all the existing frames matching the specification
-are deleted.
+If new contents is specified, B<ALL> the existing frames matching the
+specification are deleted.
 
 =item have_id3v2_frame
 
@@ -1178,17 +1297,33 @@ arguments $fname, $descrs, $langs take one string of the form
   NAME(langs)[descr]
 
 Both C<(langs)> and C<[descr]> parts may be omitted; langs should
-contain comma-separated list of needed languages.
+contain comma-separated list of needed languages.  The semantic is
+similar to
+L<MP3::Tag::ID3v2::frame_select_by_descr_simpler|MP3::Tag::ID3v2/frame_select_by_descr_simpler>.
 
 It is allowed to have C<NAME> of the form C<FRAMnn>; C<nn>-th frame
-with name C<FRAM> is chosen.
+with name C<FRAM> is chosen (C<-1>-based: the first frame is C<FRAM>,
+the second C<FRAM00>, the third C<FRAM01> etc; for more user-friendly
+scheme, use C<langs> of the form C<#NNN>, with C<NNN> 0-based; see
+L<MP3::Tag::ID3v2/"get_frame_ids()">).
 
-  $frame = $mp3->select_id3v2_frame_by_descr($descr [, $VALUE]);
+  $frame = $mp3->select_id3v2_frame_by_descr($descr [, $VALUE1, ...]);
   $have_it = $mp3->have_id3v2_frame_by_descr($descr);
 
 select_id3v2_frame_by_descr() will also apply the normalizer in config
 setting C<translate_person> if the frame name matches one of the
 elements of the configuration setting C<person_frames>.
+
+  $c = $mp3->select_id3v2_frame_by_descr("COMM(fre,fra,eng,#0)[]");
+  $t = $mp3->select_id3v2_frame_by_descr("TIT2");
+       $mp3->select_id3v2_frame_by_descr("TIT2", "MyT"); # Set/Change
+       $mp3->select_id3v2_frame_by_descr("RBUF", $n1, $n2, $n3); # Set/Change
+       $mp3->select_id3v2_frame_by_descr("RBUF", "$n1;$n2;$n3"); # Set/Change
+       $mp3->select_id3v2_frame_by_descr("TIT2", undef); # Remove
+
+Remember that when select_id3v2_frame_by_descr() is used for
+modification, B<ALL> found frames are deleted before a new one is
+added.  For gory details, see L<MP3::Tag::ID3v2/frame_select>.
 
 =item frame_translate
 
@@ -1217,11 +1352,11 @@ sub select_id3v2_frame ($$;@) {
     $self->{ID3v2}->frame_select(@_);
 }
 
-sub _select_id3v2_frame_by_descr ($$$;$) {
+sub _select_id3v2_frame_by_descr ($$$;@) {
     my ($self, $update) = (shift, shift);
     $self->get_tags;
     if (not exists $self->{ID3v2}) {
-	return if @_ <= 1 or not defined $_[1];	# Read access, or deletion
+	return if @_ <= 1 or @_ <= 2 and not defined $_[1]; # Read or delete
 	$self->new_tag("ID3v2");
     }
     my $fname = $_[0];
@@ -1240,23 +1375,27 @@ sub _select_id3v2_frame_by_descr ($$$;$) {
     }
     return if $update and not $tr;
     $tr ||= sub {$_[1]};
-    return $self->{ID3v2}->frame_select_by_descr_simple($_[0], &$tr($self, $_[1])) if @_ == 2; # Write access
+    return $self->{ID3v2}->frame_select_by_descr_simpler(@_)
+      if @_ > 2 or @_ == 2 and not defined $_[1]; # Multi-arg write or delete
+    return $self->{ID3v2}->frame_select_by_descr_simpler(
+	   $_[0], &$tr($self, $_[1])
+	) if @_ == 2; # Write access with one arg
 
-    my $val = $self->{ID3v2}->frame_select_by_descr_simple(@_);
+    my $val = $self->{ID3v2}->frame_select_by_descr_simpler(@_);
     my $nval;
     $nval = &$tr($self, $val) if defined $val;
     return $nval unless $update;
     # Update logic:
     return if not defined $val or $val eq $nval;
-    $self->{ID3v2}->frame_select_by_descr_simple($_[0], $nval);
+    $self->{ID3v2}->frame_select_by_descr_simpler($_[0], $nval);
 }
 
-sub select_id3v2_frame_by_descr ($$;$) {
+sub select_id3v2_frame_by_descr ($$;@) {
     my ($self) = (shift);
     return $self->_select_id3v2_frame_by_descr(0, @_);
 }
 
-sub frame_translate ($$) {
+sub frame_translate ($@) {
     my ($self) = (shift);
     return $self->_select_id3v2_frame_by_descr(1, @_);
 }
@@ -1295,6 +1434,51 @@ sub id3v2_frame_descriptors ($) {
     return if not exists $self->{ID3v2};
     $self->{ID3v2}->get_frame_descriptors(@_);
 }
+
+=item copy_id3v2_frames($from, $to, $overwrite, [$keep_flags, $f_ids])
+
+Copies specified frames between C<MP3::Tag> objects $from, $to.  Unless
+$keep_flags, the copied frames have their flags cleared.
+If the array reference $f_ids is not specified, all the frames (but C<GRID>
+and C<TLEN>) are considered (subject to $overwrite), otherwise $f_ids should
+contain short frame ids to consider. Group ID flag is always cleared.
+
+If $overwrite is C<'delete'>, frames with the same descriptors (as
+returned by get_frame_descr()) in $to are deleted first, then all the
+specified frames are copied.  If $overwrite is FALSE, only frames with
+descriptors not present in $to are copied.  (If one of these two
+conditions is not met, the result may be not conformant to standards.)
+
+Returns count of copied frames.
+
+=cut
+
+sub copy_id3v2_frames {
+  my ($from, $to, $overwrite, $keep_flags, $f_ids) = @_;
+  $from->get_tags;
+  return 0 unless $from = $from->{ID3v2}; # No need to create it...
+  $f_ids ||= [keys %{$from->get_frame_ids}];
+  return 0 unless @$f_ids;
+  $to->get_tags;
+  $to->new_tag("ID3v2") if not exists $to->{ID3v2};
+  $from->copy_frames($to->{ID3v2}, $overwrite, $keep_flags, $f_ids);
+}
+
+sub _Data_to_MIME ($$) {
+    goto &MP3::ID3v2::_Data_to_MIME
+}
+
+=item _Data_to_MIME
+
+Internal method to extract MIME type from a string the image file content.
+Returns C<application/octet-stream> for unrecognized data.
+
+  $format = $id3->_Data_to_MIME($data);
+
+Currently, only the first 4 bytes of the string are inspected.
+
+=cut
+
 
 =item shorten_person
 
@@ -1404,7 +1588,7 @@ wide field), C<' '> (SPACE), and C<0> (denoting the fill character to use), as
 well as an arbitrary character in parentheses (which becomes the fill
 character).  MINWIDTH and MAXWIDTH should be numbers.
 
-The one-letter ESCAPEs are replaced by
+The short ESCAPEs are replaced by
 
 		% => literal '%'
 		t => title
@@ -1459,6 +1643,13 @@ Strings C<aC>, C<tT>, C<cC>, C<cT> are replaced by the collection artist,
 track title, collection comment, and track comment as obtained from
 CDDB_File.  Strings C<iC>, C<iI> are replaced by the CDDB and CDIndex
 ids as obtained from CDDB_File or Inf.
+
+Strings C<n1> and C<n2> are replaced by "pure track number" and
+"max track number" (this allows for both formats C<N1> and C<N1/N2> of "track",
+the latter meaning track N1 of N2); use C<n0> to pad C<n1> with leading 0
+to the width of C<n2> (in absense of n2, to 2).  Likewise for C<m1>, C<m2>
+but with disk (media) number instead of track number; use C<mA> to encode
+C<m1> as a letter (see L<disk_alphanum()>). 
 
 =item *
 
@@ -1533,7 +1724,7 @@ and the rest is reinterpreted as if it started with C<%{>.
 
 String starting with I<LETTER>C<:> or C<!>I<LETTER>C<:> are treated similarly
 to ID3v2 conditionals, but the condition is that the corresponding escape
-expands to non-empty string.
+expands to non-empty string.  Same applies to non-time related 2-char escapes.
 
 =item *
 
@@ -1557,6 +1748,28 @@ C<frames> is replaced by space-separated list of "long names" of ID3v2
 frames (see id3v2_frame_descriptors()).  (To use a different separator,
 put it after slash, as in %{frames/, }, where separator is COMMA
 SPACE).
+
+=item *
+
+C<_out_frames[QQPRE//QQPOST]> is replaced by a verbose listing of frames.
+"simple" frames are output one-per-line (with the value surrounded by
+C<QQPRE> and Q<QQPOST>); fields of other frames are output one-per-line.
+If one omits the leading C<_>, then C<__binary_DATA__> replaces the value
+of binary fields.
+
+=item *
+
+C<ID3v2-size>, C<ID3v2-pad>, and C<ID3v2-stripped> are replaced by size of
+ID3v2 tag in bytes, the amount of 0-padding at the end of the tag
+(not counting one extra 0 byte at the end of tag which may be needed for
+unsyncing if the last char is \xFF), and size without padding.  Currently,
+for modified ID3v2 tag, what is returned reflect the size on disk (i.e.,
+before modification).
+
+=item *
+
+C<ID3v2-modified> is replaced by C<'modified'> if ID3v2 is present and
+is modified in memory; otherwise is replaced by an empty string.
 
 =item *
 
@@ -1651,6 +1864,12 @@ my %trans = qw(	t	title
 		cT	comment_track
 		iD	cddb_id
 		iI	cdindex_id
+		n1	track1
+		n2	track2
+		n0	track0
+		mA	disk_alphanum
+		m1	disk1
+		m2	disk2
 
 		v	mpeg_version
 		L	mpeg_layer_roman
@@ -1737,16 +1956,17 @@ sub _interpolate ($$;$$) {
 	} elsif ($what eq '{' and $_[1] =~ s/^U(\d+)}//) {	# User data
 	    next if $skip;
 	    $str = $self->get_user($1);
-	} elsif ($what eq '{' and $_[1] =~ s/^(aC|tT|c[TC]|[mMS]L|SML|i[DI])}//) {
+	} elsif ($what eq '{' and $_[1] =~ s/^(aC|tT|c[TC]|[mMS]L|SML|i[DI]|n[012]|m[A12])}//) {
 	  # CDDB, IDs, or leftover times
 	    next if $skip;
 	    my $meth = $trans{$1};
 	    $str = $self->$meth();
 	} elsif ($what eq '{' and # $frame_bra has 1 group, No. 5
-		 $_[1] =~ s/^(!)?(([talygcnfFeEABD]|ID3v[12])(:|\|\|?)|$frame_bra)//) {
+		 # 2-char fields as above, except for [mMS]L|SML
+		 $_[1] =~ s/^(!)?(([talygcnfFeEABD]|ID3v[12]|ID3v2-modified|aC|tT|c[TC]|i[DI]|n[012]|m[A12])(:|\|\|?)|$frame_bra)//) {
 	    # Alternation with simple/complicated stuff
 	    my ($neg, $id, $simple, $delim) = ($1, $2, $3, $4);
-	    if ($delim) {
+	    if ($delim) {	# Not a frame id...
 	      $id = $simple;
 	    } else {		# Frame: maybe trailed by :, |, ||, maybe not
 	      $id .= ($self->_interpolate($_[1], ']', $skip) . ']') if $5;
@@ -1762,7 +1982,7 @@ sub _interpolate ($$;$$) {
 		if ($_[1] =~ s/^}//) { # frame with optional (lang)/[descr]
 		  next if $skip or $nonesuch;
 		  $str = $self->select_id3v2_frame_by_descr($id);
-		  $str = $str->{_Data} if $str and ref $str and exists $str->{_Data};
+		  #$str = $str->{_Data} if $str and ref $str and exists $str->{_Data};
 		} elsif ($_[1] =~ /^&/o) {
 		  # join of frames with optional (language)/[descriptor]
 		  my @id = $id;
@@ -1777,7 +1997,7 @@ sub _interpolate ($$;$$) {
 		  my @out;
 		  for my $in (@id) {
 		    $in = $self->select_id3v2_frame_by_descr($in);
-		    $in = $in->{_Data} if $in and ref $in and exists $in->{_Data};
+		    #$in = $in->{_Data} if $in and ref $in and exists $in->{_Data};
 		    push @out, $in if defined $in and length $in;
 		  }
 		  $str = join '; ', @out;
@@ -1786,15 +2006,18 @@ sub _interpolate ($$;$$) {
 		}
 	      }
 	    }
-	    if ($delim) {
+	    if ($delim) {	# Conditional
 	      # $self->_interpolate($_[1], $upto, $skip), next if $skip;
 	      my $alt = ($delim ne ':') && $delim; # FALSE or $delim
 	      die "Negation and alternation incompatible in interpolation"
 		if $alt and $neg;
 	      my $have;
-	      if ($simple and 1 == length $simple) {
-		$str = $self->interpolate("%$simple");
+	      if ($simple and 2 >= length $simple) {
+		my $s = (1 == length $simple ? $simple : "{$simple}");
+		$str = $self->interpolate("%$s");
 		$have = length($str);
+	      } elsif (($simple || '') eq 'ID3v2-modified') {	# may be undef
+		$have = ${ $self->{ID3v2} || {} }{modified} || '';
 	      } elsif ($simple) { # ID3v2 or ID3v1
 		die "ID3v2 or ID3v1 as conditionals incompatible with $alt"
 		  if $alt;
@@ -1871,6 +2094,27 @@ sub _interpolate ($$;$$) {
 	    } elsif ($_[1] =~ s,^frames(?:/(.*?))?},,) {
 	      my $sep = (defined $1 ? $1 : ' ');
 	      $str = join $sep, $self->id3v2_frame_descriptors() unless $skip;
+	    } elsif ($_[1] =~ s,^(_)?out_frames\[(.*?)//(.*?)\]},,) {
+	      my($bin, $pre, $post) = ($1, $2, $3);
+	      my $v2 = $self->{ID3v2};
+		# $fr_sep, $fn_sep, $pre,$post,$fsep,$pre_mult,$val_sep		# length "Picture Type" = 12
+	      $str = ($v2 ? $v2->__frames_as_printable("\n", "\t==>\n  ", $pre,	# Tune tabbing for length=5..12 (_Data)
+						       $post, "\n  ", "", " \t=\t", $bin) : '') unless $skip;
+	    } elsif ($_[1] =~ s,^ID3v2-size},,) {
+	      my $v2 = $self->{ID3v2};
+	      $str = ($v2 ? 10 + $v2->{buggy_padding_size} + $v2->{tagsize} : 0)
+		unless $skip;
+	    } elsif ($_[1] =~ s,^ID3v2-pad},,) {
+	      my $v2 = $self->{ID3v2};
+	      $v2->get_frame_ids() if $v2 and not exists $v2->{frameIDs};
+	      $str = ($v2 ? $v2->{padding} : 0) unless $skip;
+	    } elsif ($_[1] =~ s,^ID3v2-stripped},,) {
+	      my $v2 = $self->{ID3v2};
+	      $v2->get_frame_ids() if $v2 and not exists $v2->{frameIDs};
+	      $str = ($v2 ? 10 + $v2->{buggy_padding_size} + $v2->{tagsize} - $v2->{padding} : 0) unless $skip;
+	    } elsif ($_[1] =~ s,^ID3v2-modified},,) {
+	      my $v2 = $self->{ID3v2};
+	      $str = ($v2 and $v2->{modified}) || '' unless $skip;
 	    } else {
 	      die "unknown escape; I see `$_[1]'";
 	    }
@@ -1910,9 +2154,9 @@ sub interpolate ($$) {
 
 =item interpolate_with_flags
 
-  @results = $mp3->interpolate_with_flags($pattern, $flags);
+  @results = $mp3->interpolate_with_flags($text, $flags);
 
-Processes $pattern according to directives in the string $flags; $flags is
+Processes $text according to directives in the string $flags; $flags is
 split into separate flag characters; the meanings (and order of application) of
 flags are
 
@@ -1928,7 +2172,8 @@ flags are
    I			interpolate (again) via $mp3->interpolate
    b			unless present, remove leading and trailing whitespace
 
-With C<l>, may produce multiple results.
+With C<l>, may produce multiple results.  May be accessed via
+interpolation of C<%{I(flags)text}>.
 
 =cut
 
@@ -2416,7 +2661,7 @@ for my $elt (keys %mp3info) {
   my $k = $mp3info{$elt};
   *$elt = sub (;$) {
     require MP3::Info;
-    $MP3::Info::try_harder = 1;
+    # $MP3::Info::try_harder = 1;	# Bug: loops infinitely if no frames
     my $self = shift;
     my $info = MP3::Info::get_mp3info($self->abs_filename);
     die "Didn't get valid data from MP3::Info for `".($self->abs_filename)."': $@"
@@ -2563,7 +2808,7 @@ needed.
 =cut
 
 sub update_tags {
-    my ($mp3, $data, $force) = (shift, shift, shift);
+    my ($mp3, $data, $force2) = (shift, shift, shift);
 
     $mp3->get_tags;
     $data = $mp3->autoinfo('from') unless defined $data;
@@ -2582,7 +2827,7 @@ sub update_tags {
       = (defined $mp3->{ms}) ? ($mp3->get_config('update_length'))->[0] : 0;
 
     return $mp3
-      if not $force and $mp3->{ID3v1}->fits_tag($data)
+      if not $force2 and $mp3->{ID3v1}->fits_tag($data)
 	and not exists $mp3->{ID3v2} and $do_length < 2;
 
     $mp3->new_tag("ID3v2") unless exists $mp3->{ID3v2};
@@ -2601,8 +2846,12 @@ sub update_tags {
 }
 
 sub _massage_genres ($;$) {   # Thanks to neil verplank for the prototype
-    my($data, $firstnum) = (shift, shift);
+    require MP3::Tag::ID3v1;
+    my($data, $how) = (shift, shift);
+    my $firstnum = (($how || 0) eq 'num');
+    my $prefer_num = (($how || 0) eq 'prefer_num');
     my (%seen, @genres);	# find all genres in incoming data
+    $data = $data->[0] if ref $data;
     # clean and split line on both null and parentheses
     $data =~ s/\s+/ /g;
     $data =~ s/\s*\0[\0\s]*/\0/g;
@@ -2616,17 +2865,18 @@ sub _massage_genres ($;$) {   # Thanks to neil verplank for the prototype
         next if $genre eq "";  # (12)(13) ==> in front, and between
 
         # convert text to number to eliminate collisions, and produce consistent output
-        if ($genre =~ /\D/) {{
+        if ($genre =~ /\D/) {{	# Not a pure number
             # return id number
             my $genre_num = MP3::Tag::ID3v1::genres($genre); 
             # 255 is "non-standard text" in ID3v1; pass the rest through
             last if $genre_num eq '255' or $genre_num eq '';
 	    return $genre_num if $firstnum;
+	    $genre = $genre_num, last if $prefer_num;
 	    $genre_num = MP3::Tag::ID3v1::genres($genre_num);
             last unless defined $genre_num;
             $genre = $genre_num;
-        }}
-        unless ($genre =~ /\D/) {{	# A number...
+        }}	# Now converted to a number - if possible
+        unless ($prefer_num or $genre =~ /\D/) {{ # Here $genre is a number
 	    my $genre_str = MP3::Tag::ID3v1::genres($genre) or last;
 	    return $genre if $firstnum;
             $genre = $genre_str;
@@ -3002,7 +3252,7 @@ L<typeset_audio_dir>.
 
 =head1 COPYRIGHT
 
-Copyright (c) 2000-2004 Thomas Geffert, Ilya Zakharevich.  All rights reserved.
+Copyright (c) 2000-2008 Thomas Geffert, Ilya Zakharevich.  All rights reserved.
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the Artistic License, distributed

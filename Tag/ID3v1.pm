@@ -9,7 +9,7 @@ package MP3::Tag::ID3v1;
 use strict;
 use vars qw /@mp3_genres @winamp_genres $AUTOLOAD %ok_length $VERSION @ISA/;
 
-$VERSION="0.9710";
+$VERSION="0.9712";
 @ISA = 'MP3::Tag::__hasparent';
 
 # allowed fields in ID3v1.1 and max length of this fields (except for track and genre which are coded later)
@@ -119,9 +119,9 @@ sub AUTOLOAD {
 	$self->{genreID} = $new;
       } else {
 	$self->{genreID} = genre2id($new);
-        $new = id2genre($self->{genreID})
-	  if defined $self->{genreID} and $self->{genreID} < @winamp_genres;
       }
+      $new = id2genre($self->{genreID})
+	if defined $self->{genreID} and $self->{genreID} < @winamp_genres;
     }
     $new = substr  $new, 0, $ok_length{$attr};
     $self->{$attr}=$new;
@@ -161,12 +161,13 @@ sub all {
       } else {
 	  $self->{genreID} = genre2id($self->{genre});
       }
-      $self->{genre} = id2genre($self->{genreID});
+      $self->{genre} = id2genre($self->{genreID})
+	if defined $self->{genreID} and $self->{genreID} < @winamp_genres;
       $self->{changed} = 1;
   }
   for (qw/title artist album year comment track genre/) {
       $self->{$_} =~ s/ +$//;
-  }	
+  }
   if (wantarray) {
       return ($self->{title},$self->{artist},$self->{album},
 	      $self->{year},$self->{comment}, $self->{track}, $self->{genre});
@@ -188,7 +189,8 @@ sub fits_tag {
     my ($self, $hash) = (shift, shift);
     my $elt;
     if (defined (my $track = $hash->{track})) {
-      return unless $track =~ /^\d{0,3}$/ and $track < 256;
+      $track = $track->[0] if ref $track;
+      return unless $track =~ /^\d{0,3}$/ and ($track eq '' or $track < 256);
     }
     my $s = '';
     for $elt (qw(title artist album comment year)) {
@@ -201,11 +203,12 @@ sub fits_tag {
 	  if $elt eq 'comment' and not $hash->{track} and length $data <= 30;
 	return;
     }
-    if ($hash->{genre}) {
-        my @g = MP3::Tag::Implemenation::_massage_genres($hash->{genre});
+    if (defined (my $genre = $hash->{genre})) {
+	$genre = $genre->[0] if ref $genre;
+        my @g = MP3::Tag::Implemenation::_massage_genres($genre);
 	return if @g > 1;
-	my $id = MP3::Tag::Implemenation::_massage_genres($hash->{genre}, 'num');
-	return if $id eq '' or $id == 255;
+	my $id = MP3::Tag::Implemenation::_massage_genres($genre, 'num');
+	return if not defined $id or $id eq '' or $id == 255;
     }
     if ($s =~ /[^\x00-\x7E]/) {
       my $w = ($self->get_config('encode_encoding_v1') || [0])->[0];
@@ -216,7 +219,7 @@ sub fits_tag {
       return !(($self->get_config('encoded_v1_fits')||[0])->[0])
 	if $w eq 'iso-8859-1';	# read+write not idempotent
       return if $w ne $r
-	  and not ($self->get_config('encoded_v1_fits')||[0])->[0];
+	  and not (($self->get_config('encoded_v1_fits')||[0])->[0]);
     }
     return 1;
 }
@@ -239,7 +242,7 @@ Writes the ID3v1 tag to the file.
 
 sub as_bin {
     my $self = shift;
-    local $self->{track}=0 unless $self->{track} =~ /^\d+$/;
+    my($t) = ( $self->{track} =~ m[^(\d+)(?:/|$)], 0 );
     my (%f, $f, $e);
     for $f (qw(title artist album comment) ) {
 	$f{$f} = $self->{$f};
@@ -254,8 +257,7 @@ sub as_bin {
         }
     }
 
-    $f{comment} = pack "a28 x C", $f{comment}, $self->{track}
-	if $self->{track} and $self->{track} !~ /\D/;
+    $f{comment} = pack "a28 x C", $f{comment}, $t if $t;
     $self->{genreID}=255 unless $self->{genreID} =~ /^\d+$/;
 
     return pack("a3a30a30a30a4a30C","TAG",$f{title}, $f{artist},
@@ -462,7 +464,7 @@ sub read_tag {
 # convert small integer id to genre name
 sub id2genre {
     my $id=shift;
-    return "" unless defined $id && $id<$#winamp_genres;
+    return "" unless defined $id and $id < @winamp_genres;
     return $winamp_genres[$id];
 }
 
@@ -507,7 +509,16 @@ BEGIN { @mp3_genres = ( 'Blues', 'Classic Rock', 'Country', 'Dance',
 			   'Porn Groove', 'Satire', 'Slow Jam', 'Club', 'Tango', 'Samba',
 			   'Folklore', 'Ballad', 'Power Ballad', 'Rhythmic Soul',
 			   'Freestyle', 'Duet', 'Punk Rock', 'Drum Solo', 'Acapella',
-			   'Euro-House', 'Dance Hall', ); 
+			   'Euro-House', 'Dance Hall',
+			   # More from MP3::Info
+			   'Goa', 'Drum & Bass', 'Club-House', 'Hardcore',
+			   'Terror', 'Indie', 'BritPop', 'Negerpunk',
+			   'Polsk Punk', 'Beat', 'Christian Gangsta Rap',
+			   'Heavy Metal', 'Black Metal', 'Crossover',
+			   'Contemporary Christian Music', 'Christian Rock',
+			   'Merengue', 'Salsa', 'Thrash Metal', 'Anime',
+			   'JPop', 'SynthPop',			# 149
+			 ); 
 }
 
 =pod

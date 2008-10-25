@@ -3,16 +3,16 @@
 eval 'exec /usr/bin/perl -w -S $0 ${1+"$@"}'
     if 0; # not running under some shell
 
-$VERSION = '1.01';
+$VERSION = '1.03';
 
-use MP3::Tag;
+use MP3::Tag 0.9711;
 use Getopt::Std 'getopts';
 use File::Spec;
 use File::Path;
 use strict;
 
 $Getopt::Std::STANDARD_HELP_VERSION = 1;
-my %opt = (E => '', p => '%02n_%t', e => '.inf|.tag|.mp3', r => qr(\.mp3$)i);
+my %opt = (E => '', p => '%{mA}%{n0}_%t', e => '.inf|.tag|.mp3', r => qr(\.mp3$)i);
 
 # WinCyrillic (win1251), short (CDFS), Keep non-filename chars, Dry run, Glob,
 # path via pattern, |-separated list of associated extensions
@@ -71,11 +71,11 @@ sub setup_translator () {
   return if $translator;
   require FindBin;
   push @INC, $FindBin::Bin if $FindBin::Bin;	# Pacify "used only once..."
-  require transliterate_win1251;
-  $translator = transliterate_win1251::make_translator(
-       (transliterate_win1251::prepare_translation(
-              transliterate_win1251::cyr_table(),
-              transliterate_win1251::lat_table()))[0] );
+  require Encode::transliterate_win1251;
+  $translator = Encode::transliterate_win1251::make_translator(
+       (Encode::transliterate_win1251::prepare_translation(
+              Encode::transliterate_win1251::cyr_table(),
+              Encode::transliterate_win1251::lat_table()))[0] );
 }
 
 sub cyr_unicode_to_volapuk ($) {
@@ -241,6 +241,9 @@ transliterates cyrillic, and shortens long names.
 both with UNIXish and DOSish shells; the other examples can be massaged
 likewise.)
 
+(Replacing C<@02n> by C<@{mA}@{n0}> (as in the default value of C<-p>)
+may provide more intelligent semantic.  See the description of C<-p>.
+
   audio_rename -KD *.wav
 
 Reports how it would rename the F<*.wav> files in this directory
@@ -301,8 +304,25 @@ General use options:
 
 Target file name/basename pattern; is subject to interpolation via
 C<MP3::Tag> method L<C<interpolate()>|MP3::Tag/interpolate>.  Default
-is C<%02n_%t>; this uses 2-digit track number separated from the title
-by underscore.
+is C<%{mA}%{n0}_%t>; in simplest cases this uses 2-digit track number
+separated from the title by underscore.  See L<MP3::Tag/interpolate> for
+more details.
+
+Here is the explanation of the default value: due to semantic of escapes
+C<%{mA}> and C<%{n0}>, if C<TPOS> frame (disk number) is present, it is
+encoded as a letter, and put before the track number.  If the track number
+has a form C<N1/N2> (meaning track N1 of N2), then N1 is used, and padded
+by 0s to the width of N2.  If C<N2> is not present, padding to width=2 is
+used.
+
+For example, if C<TPOS> is 3/12, and track is C<14/173>, then what is prepended
+to the title is C<c014_>; if there is no C<TPOS> frame, and track is C<4/8>,
+C<4_> is prepended without any leading 0.
+
+(If you want to modify the semantic of C<%{n0}>, note that it is equivalent
+to C<%{n2:%{n0}}%{!n2:%02n}>.  So while C<%02{n0}> will ALWAYS 0-pad to at
+least width=2, the pattern C<%{n2:%{n0}}%{!n2:%03n}> will 0-pad to width=3
+in the case N2 is absent.
 
 =item B<-e> C<.ext1|.ext2|...>
 
@@ -387,8 +407,9 @@ in the given pattern (not slashes coming from interpolated strings).
 =item B<-c>
 
 Latinize file names (for portability) assuming they are in WinCyrillic
-encoding.  Needs F<transliterate_win1251.pm> (in F<examples/mod> directory
-of the distribution; put it in the same directory as the script).
+encoding.  Needs F<transliterate_win1251.pm> (in F<examples/mod/Encode>
+directory of the distribution; put it in the subdirectory F<Encode> of the
+script directory).
 
 =item B<-K>
 

@@ -18,7 +18,7 @@ examples/README.txt
 examples/audio_rename
 examples/mod/Music_Translate_Fields.pm
 examples/mod/Music_Normalize_Fields.pm
-examples/mod/transliterate_win1251.pm
+examples/mod/Encode/transliterate_win1251.pm
 examples/src/HOWTO
 examples/src/Beethoven.all_y 
 examples/mod/manage_M_N_F.pm

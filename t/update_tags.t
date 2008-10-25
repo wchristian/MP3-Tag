@@ -20,12 +20,14 @@ ok(1,"MP3::Tag initialized");
 # (correspondingly "not ok 13") depending on the success of chunk 13
 # of the test code):
 
-{local *F; open F, '>test12.mp3' or warn; print F 'empty'}
+{local *F; open F, '>test14.mp3' or warn; print F 'empty'}
 
-$mp3 = MP3::Tag->new("test12.mp3");
+$mp3 = MP3::Tag->new("test14.mp3");
 ok($mp3, "Got tag");
 ok($mp3->update_tags({'title' => 'foobar'}), 'update_tags() called');
-ok($mp3 = MP3::Tag->new("test12.mp3"), "Regot tag");
+ok($mp3 = MP3::Tag->new("test14.mp3"), "Regot tag");
+my $t = $mp3->title;
+print "# t=<$t>\n";
 ok($mp3->title eq 'foobar', 'Tag correctly written');
 
 my @failed;

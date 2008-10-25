@@ -7,7 +7,7 @@
 # Change 1..1 below to 1..last_test_to_print .
 # (It may become useful if the test is moved to ./t subdirectory.)
 
-BEGIN { $| = 1; print "1..89\n"; $ENV{MP3TAG_SKIP_LOCAL} = 1}
+BEGIN { $| = 1; print "1..137\n"; $ENV{MP3TAG_SKIP_LOCAL} = 1}
 END {print "MP3::Tag not loaded :(\n" unless $loaded;}
 use MP3::Tag;
 $loaded = 1;
@@ -269,6 +269,105 @@ $mp3->config(parse_data => ['im', 'my/dir/%f', '%t/%c/%c.%e']);
 $i = $mp3->comment;
 #warn "<$i>\n";
 ok($mp3 && $i eq 'dir; audio_07', "multi-%c and %e via parse/interpolate");
+
+$mp3 = MP3::Tag->new("./audio_07.mp3");
+ok($mp3 && $mp3->genre_set('foobar / baz'), "set genre to something complicated to trigger v2");
+ok($mp3 && $mp3->update_tags({genre => '(18)'}), "set genre to (18)");
+$mp3 = MP3::Tag->new("./audio_07.mp3");
+ok($mp3 && $mp3->genre() eq 'Techno', "get genre");
+ok($mp3 && $mp3->{ID3v1}->genre() eq 'Techno', "get v1 genre");
+ok($mp3 && $mp3->{ID3v2}, "v2 was set");
+
+$mp3 = MP3::Tag->new("./audio_07.mp3");
+ok($mp3 && $mp3->update_tags({genre => 18}), "set genre to 18");
+$mp3 = MP3::Tag->new("./audio_07.mp3");
+ok($mp3 && $mp3->genre() eq 'Techno', "get genre");
+ok($mp3 && $mp3->{ID3v1}->genre() eq 'Techno', "get v1 genre");
+
+$mp3 = MP3::Tag->new("./audio_07.mp3");	# max=147 SynthPop
+ok($mp3 && $mp3->update_tags({genre => '(147)'}), "set genre to (147)");
+$mp3 = MP3::Tag->new("./audio_07.mp3");
+ok($mp3 && $mp3->genre() eq 'SynthPop', "get genre");
+ok($mp3 && $mp3->{ID3v1}->genre() eq 'SynthPop', "get v1 genre");
+
+$mp3 = MP3::Tag->new("./audio_07.mp3");	# max=147 SynthPop
+ok($mp3 && $mp3->update_tags({genre => '147'}), "set genre to 147");
+$mp3 = MP3::Tag->new("./audio_07.mp3");
+ok($mp3 && $mp3->genre() eq 'SynthPop', "get genre");
+ok($mp3 && $mp3->{ID3v1}->genre() eq 'SynthPop', "get v1 genre");
+
+$mp3 = MP3::Tag->new("./audio_07.mp3");	# max=149 SynthPop
+ok($mp3 && $mp3->update_tags({genre => '(149)'}), "set genre to (149)");
+$mp3 = MP3::Tag->new("./audio_07.mp3");
+ok($mp3 && $mp3->genre() eq '(149)', "get genre");
+my $g = $mp3->{ID3v1}->genre();
+print "# g=<$g>\n";
+ok($mp3 && $g eq '', "get v1 genre");
+
+$mp3 = MP3::Tag->new("./audio_07.mp3");	# max=149 SynthPop
+ok($mp3 && $mp3->update_tags({genre => '149'}), "set genre to 149");
+$mp3 = MP3::Tag->new("./audio_07.mp3");
+ok($mp3 && $mp3->genre() eq '(149)', "get genre");
+$g = $mp3->{ID3v1}->genre();
+print "# g=<$g>\n";
+ok($mp3 && $g eq '', "get v1 genre");
+
+open NH, '>audio_07.mp3' or warn;
+close NH;
+
+$mp3 = MP3::Tag->new("./audio_07.mp3");
+ok($mp3->interpolate("%{ID3v1:have v1}/%{!ID3v1:no v1}; %{ID3v2:have v2}/%{!ID3v2:no v2}") eq '/no v1; /no v2', 'conditional interpolate');
+ok($mp3 && $mp3->update_tags({genre => '(18)'}), "set genre to (18)");
+$mp3 = MP3::Tag->new("./audio_07.mp3");
+ok($mp3 && $mp3->genre() eq 'Techno', "get genre");
+ok($mp3 && $mp3->{ID3v1}->genre() eq 'Techno', "get v1 genre");
+ok($mp3->interpolate("%{ID3v1:have v1}/%{!ID3v1:no v1}; %{ID3v2:have v2}/%{!ID3v2:no v2}") eq 'have v1/; /no v2', 'conditional interpolate');
+
+$mp3 = MP3::Tag->new("./audio_07.mp3");
+ok($mp3 && $mp3->update_tags({genre => 18}), "set genre to 18");
+$mp3 = MP3::Tag->new("./audio_07.mp3");
+ok($mp3 && $mp3->genre() eq 'Techno', "get genre");
+ok($mp3 && $mp3->{ID3v1}->genre() eq 'Techno', "get v1 genre");
+
+$mp3 = MP3::Tag->new("./audio_07.mp3");	# max=147 SynthPop
+ok($mp3 && $mp3->update_tags({genre => '(147)'}), "set genre to (147)");
+$mp3 = MP3::Tag->new("./audio_07.mp3");
+ok($mp3 && $mp3->genre() eq 'SynthPop', "get genre");
+ok($mp3 && $mp3->{ID3v1}->genre() eq 'SynthPop', "get v1 genre");
+
+$mp3 = MP3::Tag->new("./audio_07.mp3");	# max=147 SynthPop
+ok($mp3 && $mp3->update_tags({genre => '147'}), "set genre to 147");
+$mp3 = MP3::Tag->new("./audio_07.mp3");
+ok($mp3 && $mp3->genre() eq 'SynthPop', "get genre");
+ok($mp3 && $mp3->{ID3v1}->genre() eq 'SynthPop', "get v1 genre");
+ok($mp3 && !$mp3->{ID3v2}, "no v2 was set");
+
+$mp3 = MP3::Tag->new("./audio_07.mp3");	# max=147 SynthPop
+ok($mp3 && $mp3->update_tags({genre => '(149)'}), "set genre to (149)");
+$mp3 = MP3::Tag->new("./audio_07.mp3");
+ok($mp3 && $mp3->genre() eq '(149)', "get genre");
+$g = $mp3->{ID3v1}->genre();
+print "# g=<$g>\n";
+ok($mp3 && $g eq '', "get v1 genre");
+
+$mp3 = MP3::Tag->new("./audio_07.mp3");	# max=147 SynthPop
+ok($mp3 && $mp3->update_tags({genre => '149', track => '2/4'}), "set genre to 149, track");
+$mp3 = MP3::Tag->new("./audio_07.mp3");
+ok($mp3 && $mp3->genre() eq '(149)', "get genre");
+$g = $mp3->{ID3v1}->genre();
+print "# g=<$g>\n";
+ok($mp3 && $g eq '', "get v1 genre");
+ok($mp3 && $mp3->track() eq '2/4', "get track");
+ok($mp3 && $mp3->{ID3v1}->track() eq '2', "get v1 track");
+ok(0 == ((-s "./audio_07.mp3") % 512), "padding to sector");
+ok($mp3->interpolate("%{ID3v1:have v1}/%{!ID3v1:no v1}; %{ID3v2:have v2}/%{!ID3v2:no v2}") eq 'have v1/; have v2/', 'conditional interpolate');
+
+open NH, '>audio_07.mp3' or warn;
+close NH;
+$mp3 = MP3::Tag->new("./audio_07.mp3");	# max=147 SynthPop
+ok($mp3 && ($mp3->genre_set(113) or 1), 'set genre');
+ok($mp3 && $mp3->{ID3v1} && $mp3->{ID3v1}->genre() eq 'Tango', 'get v1 genre');
+ok($mp3 && $mp3->genre() eq 'Tango', 'get genre');
 
 my @failed;
 #@failed ? die "Tests @failed failed.\n" : print "All tests successful.\n";
