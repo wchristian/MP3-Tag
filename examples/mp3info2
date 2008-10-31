@@ -6,7 +6,7 @@ use lib "$FindBin::Bin";
 use MP3::Tag 0.9711;
 use Getopt::Std 'getopts';
 
-$VERSION = '1.05';
+$VERSION = '1.06';
 use strict;
 
 $Getopt::Std::STANDARD_HELP_VERSION = 1;
@@ -49,7 +49,7 @@ if ($opt{e}) {
     if ($opt{e} >= 2) {		# Reinterpret ARGs
       $skip = ($opt{e} == 2);
       @ARGV = map Encode::decode($locale, $_), @oARGV;
-      %o = ();
+      %opt = ();
       massage_o();
     }
     $opt{e} = $locale;
@@ -688,13 +688,13 @@ Update tags if needed.
 
 =head1 Usage strategy: escalation of complexity
 
-The purpose of this script is to allow handling of ID3 tags I<without>
-writing scripts which directly access L<MP3::Tag|MP3::Tag> Perl
-module.  (Using C<MP3::Tag>, one should be able to perform arbitrarily
-complex manipulations with tags; so if this script does not satisfy
-your needs, program your task using the module.)
+The purpose of this script is to to make handling of ID3 tags as simple
+I<as possible>.
 
-On the other hand, it is much easier to handle simplest manipulations
+On one end of the scale, one can perform arbitrarily
+complex manipulations with tags using L<C<MP3::Tag>|MP3::Tag> Perl module.
+
+On the other end, it is much more convenient to handle simplest manipulations
 with tags using this script's options C<-t -a -l -y -g -c -n> and C<-p
 -F -d>.  For slightly more complicated tasks, one may need to use the
 more elaborate method of I<parse rules>, provided to this script by
@@ -705,7 +705,7 @@ To simplify upgrade from "simplest manipulations" to "more elaborate
 ones", here we provide "parse rule" I<synonyms> to the simplest
 options.  So if you start with C<-t -a -l -y -g -c -n> and C<-p -F -d>
 options which "almost work" for you, you have a good chance to be able
-to achieve your aim by modifying the synonyms described below.
+to fully achieve your aim by modifying the synonyms described below.
 
 (Below we assume that C<-E> option is set to its default value, so
 C<-F -p> are C<%>-interpolated, other options are not.  Note also that
@@ -957,8 +957,19 @@ C<eng>), call
 inside the directory F<audio>.  (Change C<fim> to C<Ffim> to ignore
 the audio files for which the corresponding text file does not exist.)
 (Of course, to follow the specifications, one should have used the
-field C<"%{USLT(eng)[]}"> instead of C<"%{COMM(eng)[lyrics]}">).  With
-C<-F> option, one could set the C<USLT> frame as
+field C<"%{USLT(eng)[]}"> instead of C<"%{COMM(eng)[lyrics]}">; see below
+for variations).  
+
+Finish by a very simple example: all what the pattern
+
+  -P 'i;%t;%t'
+
+does is removal of trailing and leading blanks from the title (which
+is deduced by other means).
+
+=head1 More examples
+
+With C<-F> option, one could set the C<USLT> frame as
 
   mp3info2 -@F "USLT(eng)[] < ../text/@{d0}/@B.txt" -Ru .
 
@@ -980,10 +991,10 @@ C<"Cover (front)">, and empty description), do one of
   mp3info2 -F  "APIC  <          xxx.gif"  file.mp3
   mp3info2 -@F "APIC[]=@{I(fimbB)xxx.gif}" file.mp3
 
-The difference is that the first removes all C<APIC> frames first, and the
-second removes only all C<APIC> frames with empty description - but arbitrary
-image type.  So it may be more suitable to use the full specification, as in
-C<APIC(Cover (front))[]>.
+The difference of C<APIC> and C<APIC[]> is that the first removes all
+C<APIC> frames first, and the second removes only all C<APIC> frames with
+empty description - but arbitrary image type.  So it may be more suitable
+to use the full specification, as in C<APIC(Cover (front))[]>.
 
 To remove C<APIC> frames with empty descriptions, arbitrary C<Picture Type>s
 (and C<MIME type>s which may be correctly calculated by F<mp3info2>, e.g.,
@@ -1003,23 +1014,29 @@ is no C<APIC> frame, and a file exists, do
 
   mp3info2 -@F "APIC ?< @D/cover.jpg" -R .
 
+=head1 Examples on dealing with broken encodings
+
+One of principal weaknesses of ID3 specification was that it required that
+data is provided in C<latin-1> encoding.  Since most languages in the world
+are not expressible in C<latin-1>, this lead to (majority?) of ID3 tags being
+not standard-conforming.  Newer versions of the specs fixed this shortcoming,
+but the damage was already done.  Fortunately, this script can use abilities
+of L<C<MP3::Tag>|MP3::Tag/ENVIRONMENT> to convert from non-conforming content
+to a conforming one.
+
 The following example converts ID3v2 tags which were written in
 (non-standard-conforming) encoding C<cp1251> to be in
-standard-conforming encoding.  It assumes that ID3v1 tags are in the same
-encoding (and leaves them in the encoding C<cp1251>); the files to
-process are found in the current directory and (recursively) in its
-subdirectories (C<set> syntax for DOSISH shells):
+standard-conforming encoding.  For the purpose of this example, assume that
+ID3v1 tags are in the same encoding (and that one wants to leave them in the
+encoding C<cp1251>); the files to process are found in the current directory
+and (recursively) in its subdirectories (C<set> syntax for DOSISH shells):
 
   set MP3TAG_DECODE_V1_DEFAULT=cp1251
   set MP3TAG_DECODE_V2_DEFAULT=cp1251
   mp3info2 -C id3v2_fix_encoding_on_write=1 -u2R .
 
-Finish by a very simple example: all what the pattern
-
-  -P 'i;%t;%t'
-
-does is removal of trailing and leading blanks from the title (which
-is deduced by other means).
+For more information, see L<MP3::Tag/ENVIRONMENT>, L<MP3::Tag/config>,
+and L<MP3::Tag/CUSTOMIZATION>.
 
 =head1 INCOMPATIBILITIES with F<mp3info>
 

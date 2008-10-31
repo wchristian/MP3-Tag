@@ -1,3 +1,9 @@
+Release Name: 0.9713
+====================
+
+mp3info2: -e was broken by support for duplicated-options.
+  Better structuring of documentation.
+
 Release Name: 0.9712
 ====================
 
