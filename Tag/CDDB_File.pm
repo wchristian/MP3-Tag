@@ -5,7 +5,7 @@ use File::Basename;
 use File::Spec;
 use vars qw /$VERSION @ISA/;
 
-$VERSION="0.9709";
+$VERSION="0.9714";
 @ISA = 'MP3::Tag::__hasparent';
 
 =pod
@@ -281,7 +281,7 @@ sub track {
   return $self->{track} if defined $self->{track};
   return if $self->{recursive} or not $self->parent_ok;
   local $self->{recursive} = 1;
-  return $self->{parent}->track;
+  return $self->{parent}->track1;
 }
 
 =item year()

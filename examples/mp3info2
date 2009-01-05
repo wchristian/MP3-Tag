@@ -3,10 +3,10 @@
 use FindBin;
 use lib "$FindBin::Bin";
 
-use MP3::Tag 0.9711;
+use MP3::Tag 0.9714;
 use Getopt::Std 'getopts';
 
-$VERSION = '1.06';
+$VERSION = '1.07';
 use strict;
 
 $Getopt::Std::STANDARD_HELP_VERSION = 1;
@@ -59,6 +59,11 @@ if ($opt{e}) {
   }
   binmode STDOUT, ":encoding($opt{e})" unless $skip;
 }
+
+my $e_opt = MP3::Tag->get_config('extra_config_keys');
+MP3::Tag->config('extra_config_keys', @$e_opt, 'empty-F-deletes');
+MP3::Tag->config('empty-F-deletes', 1)
+  unless defined MP3::Tag->get_config1('empty-F-deletes');
 
 # keys of %opt to the MP3::Tag keywords:
 my %trans = (	't' => 'title',
@@ -255,12 +260,12 @@ EOC
 	  $mp3->$meth($v);
 	}
 	for my $set (@set_f) {
-	  my($have, $b, $whole);
+	  my($have, $b, $whole, $e);
 	  if ($set->[2] =~ /^(?:\?<|(>))$/) {
-	    my $to = $1;
+	    my $write = $1;
 	    $have = ($set->[0] =~ /^(TAGS|ID3v[12])$/
 		     or $mp3->have_id3v2_frame_by_descr($set->[0]));
-	    next if $to ? !$have : $have;
+	    next if $write and not $have;
 	  }
 	  my $v = $set->[1];
 	  $v = $mp3->interpolate($v) if $e_interp->{F};
@@ -274,9 +279,12 @@ EOC
 	  if ($set->[2] eq '>') { # we know frame exists
 	    my $o;
 	    if ($whole) {
+	      $mp3->get_tags;
 	      if ($set->[0] eq 'TAGS') {
+		next unless exists $mp3->{ID3v2} or exists $mp3->{ID3v1};
 		$o = $mp3->interpolate("%{ID3v2}%{ID3v1}");
 	      } else {
+		next unless exists $mp3->{$set->[0]};
 		$o = $mp3->interpolate("%{$set->[0]}");
 	      }
 	    } else {
@@ -300,7 +308,7 @@ EOC
 	      $from->get_tags;
 	      if ($set->[0] =~ /^(TAGS|(ID3v1)?)$/) { # Process "simple" fields
 		my $from1 = ($2 ? $from->{ID3v1} : $from);	# $2: ID3v1
-		for my $field (values %trans) {
+		for my $field (values %trans) {	# Use "named method" for access
 		  my $v = ($from1 and $from1->$field());
 		  next unless defined $v and length $v;
 		  my $check_v = (not $cond or $mp3->$field);
@@ -316,12 +324,17 @@ EOC
 	      next;
 	    }
 	    open FF, "< $v" or die "Can't open `$v' for read: $!";
-	    binmode FF if $b;
+	    if ($b) { binmode FF }
+	    elsif ($e = $mp3->get_config1('decode_encoding_files')) {
+	      eval "binmode FF, ':encoding($e)'"; # old binmode won't compile...
+	      warn $@ if $@ and $] >= 5.008;
+	    }
 	    undef $/;
 	    $v = <FF>;
 	    close FF  or die "Can't close `$v' for read: $!";
 	    $v =~ s/^\s+//, $v =~ s/^\s+// unless $b;
 	  }
+	  undef $v if not length $v and $mp3->get_config1('empty-F-deletes');
 	  $mp3->select_id3v2_frame_by_descr($set->[0], $v);
 	  $modify++;
 	}
@@ -529,7 +542,9 @@ Again, on modify, B<ALL> matching frames are deleted first, so be carefull with
 
   -F COMM=MyComment
 
-Option C<-F> may be repeated to set more than one frame.
+Option C<-F> may be repeated to set more than one frame.  If configuration
+variable C<empty-F-deletes> is TRUE (default), empty arguments will delete
+the frame.
 
 One can replace C<FRAME_spec=VALUE> by C<FRAME_spec E<lt> FILE>; in
 this case the value to set is read from the file named F<FILE>; if the
@@ -562,7 +577,9 @@ configuration item C<parse_data> of C<MP3::Tag>; eventually this information
 is processed by L<MP3::Tag::ParseData|MP3::Tag::ParseData> module (if the
 latter is present in the chain of heuristics; see option C<-C>).  The
 C<RECIPE> is split into C<$flags, $string, @patterns> on its first
-non-alphanumeric character.  (See examples: L<EXAMPLES: parse rules>.)
+non-alphanumeric character; the first of @patterns which matches
+$string is going to be executed (for side effects).  (See examples:
+L<EXAMPLES: parse rules>.)
 
 If option C<-G> is specified, the file names on the command line are
 considered as glob patterns.  This may be useful if the maximal
@@ -1013,6 +1030,13 @@ directory of the file as a "default" C<APIC> frame, but only if there
 is no C<APIC> frame, and a file exists, do
 
   mp3info2 -@F "APIC ?< @D/cover.jpg" -R .
+
+This deletes empty frames for date, C<TCOP, TENC, WXXX[], COMM(eng)[]>, and
+removes the leading 0 from track number from MP3 file in current directory:
+
+  mp3info2 -@ -E +/i:y -F "TCOP=@{TCOP}" -F "TENC=@{TENC}"
+    -F "WXXX[]=@{WXXX[]}" -F "COMM(eng)[]=@{COMM(eng)[]}"
+    -y "@y" -P "mi/@n/0@n/@n" *.mp3
 
 =head1 Examples on dealing with broken encodings
 

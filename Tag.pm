@@ -38,7 +38,7 @@ use MP3::Tag::ParseData;
 use MP3::Tag::LastResort;
 
 use vars qw/$VERSION @ISA/;
-$VERSION="0.9713";
+$VERSION="0.9714";
 @ISA = qw( MP3::Tag::User MP3::Tag::Site MP3::Tag::Vendor
 	   MP3::Tag::Implemenation ); # Make overridable
 *config = \%MP3::Tag::Implemenation::config;
@@ -80,6 +80,7 @@ use vars qw/%config/;
 	    id3v2_set_trusted_encoding0	  => [1],
 	    id3v2_fix_encoding_on_edit	  => [1],
 	    local_cfg_file		  => ['~/.mp3tagprc'],
+	    extra_config_keys		  => [],
 	  );
 {
   my %e;
@@ -224,12 +225,13 @@ sub new {
   package MP3::Tag::__proxy;
   use vars qw/$AUTOLOAD/;
 
+  my $skip_weaken = $ENV{MP3TAG_SKIP_WEAKEN};
   sub new {
     my ($class, $handle) = (shift,shift);
     my $self = bless [$handle], $class;
     #warn("weaken() failed, falling back"),
-      return bless [], $class
-	unless eval {require Scalar::Util; Scalar::Util::weaken($self->[0]); 1};
+    return bless [], $class if $skip_weaken or not
+      eval {require Scalar::Util; Scalar::Util::weaken($self->[0]); 1};
     $self;
   }
   sub DESTROY {}
@@ -908,7 +910,7 @@ pattern.
 
 =item id3v23_unsync_size_w
 
-Old experimental flag to test why ITunes refuse to handle unsyncronized tags
+Old experimental flag to test why ITunes refuses to handle unsyncronized tags
 (does not help, see L<id3v23_unsync>).  The idea was that
 version 2.3 of the standard is not clear about frame size field, whether it
 is the size of the frame after unsyncronization, or not.  We assume
@@ -919,33 +921,46 @@ write.
 =item id3v23_unsync
 
 Some broken MP3 players (e.g., ITunes, at least up to v6) refuse to
-handle unsyncronized (e.g., written as the standard requires it) tags;
+handle unsyncronized (i.e., written as the standard requires it) tags;
 they may need this to be set to FALSE.  Default: TRUE.
 
 (Some details: by definition, MP3 files should contain combinations of bytes
 C<FF F*> or C<FF E*> only at the start of audio frames ("syncronization" points).
-ID3v2 standards take this into account, and suppose storing raw tag data
+ID3v2 standards take this into account, and supports storing raw tag data
 in a format which does not contain these combinations of bytes
-["unsyncronization"].  Itunes etc do not only emit broken MP3 files
+[via "unsyncronization"].  Itunes etc do not only emit broken MP3 files
 [which cause severe hiccups in players which do not know how to skip ID3v2
-tags], they also refuse to read ID3v2 tags written in a correct,
-unsyncronized, format.)
+tags, as most settop DVD players], they also refuse to read ID3v2 tags
+written in a correct, unsyncronized, format.)
 
 (Note also that the issue of syncronization is also applicable to ID3v1
 tags; however, since this data is near the end of the file, many players
 are able to recognize that the syncronization points in ID3v1 tag cannot
 start a valid frame, since there is not enough data to read; some other
-players would hiccup anyway...)
+players would hiccup anyway if ID3v1 contains these combinations of bytes...)
 
 =item encoded_v1_fits
 
-If TRUE, data is considered to fit ID3v1 tag even if
-C<encode_encoding_v1> is set (so the resulting tag is not
-standard-complying, thus ambiguous), or is not set, but
-C<decode_encoding_v1> is set (thus read+write operation is not
-idempotent), and the tag data contains "high bit characters".  Default
-FALSE (so that ID3v2 tag will forced to written if
-C<encode_encoding_v1> is set).
+If FALSE (default), data containing "high bit characters" is considered to
+not fit ID3v1 tag if one of the following conditions hold:
+
+=over 4
+
+=item 1.
+
+C<encode_encoding_v1> is set (so the resulting ID3v1 tag is not
+standard-complying, thus ambiguous without ID3v2), or
+
+=item 2.
+
+C<encode_encoding_v1> is not set, but C<decode_encoding_v1> is set
+(thus read+write operation is not idempotent for ID3v1 tag).
+
+=back
+
+With the default setting, these problems are resolved as far as (re)encoding
+of ID3v2 tag is non-ambiguous (which holds with the default settings for
+ID3v2 encodeing).
 
 =item decode_encoding_v1
 
@@ -978,7 +993,11 @@ C<encode_encoding_files>.
 
 Note that C<decode_encoding_v2> has no "encode" pair; it may also be disabled
 per tag via effects of C<ignore_trusted_encoding0_v2> and the corresponding
-frame C<TXXX[trusted_encoding0_v2]> in the tag.
+frame C<TXXX[trusted_encoding0_v2]> in the tag.  One should also keep in
+mind that the ID3v1 standard requires the encoding to be "latin1" (so
+does not store the encoding anywhere); this does not make a lot of sense,
+and a lot of effort of this module is spend to fix this unfortunate flaw.
+See L<"Problems with ID3 format">.
 
 =item ignore_trusted_encoding0_v2
 
@@ -1046,6 +1065,13 @@ but most things work acceptably).
 If FALSE (default), writing of ID3v2.4 is prohibited (it is not fully
 supported; allow on your own risk).
 
+=item extra_config_keys
+
+List of extra config keys (default is empty); setting these would not cause
+warnings, and would not affect operation of C<MP3::Tag>.  Applications using
+this module may add to this list to allow their configuration by the same
+means as configuration of C<MP3::Tag>.
+
 =item *
 
 Later there will be probably more things to configure.
@@ -1064,7 +1090,7 @@ sub config {
 		   v2title cddb_files force_interpolate parse_data parse_split
 		   composer performer default_language default_descr_c
 		   update_length id3v2_fix_encoding_on_write
-		   id3v2_fix_encoding_on_edit
+		   id3v2_fix_encoding_on_edit extra_config_keys
 		   parse_join parse_filename_ignore_case encoded_v1_fits
 		   parse_filename_merge_dots year_is_timestamp
 		   comment_remove_date extension id3v2_missing_fatal
@@ -1083,14 +1109,17 @@ sub config {
 				     comment_track title_track
 				     composer performer
 				     artist_collection person );
-    $conf_rex = '^(' . join('|', @known, @tr) . ')$' unless $conf_rex;
+    my $e_known = $self->get_config('extra_config_keys');
+    $e_known = [map lc, @$e_known];
+    $conf_rex = '^(' . join('|', @known, @$e_known, @tr) . ')$' unless $conf_rex;
 
     if ($item =~ /^(force)$/) {
 	return $config->{$item} = {@options};
     } elsif ($item !~ $conf_rex) {
-	warn "MP3::Tag::config(): Unknown option '$item' found; known options: @known @tr\n";
+	warn "MP3::Tag::config(): Unknown option '$item' found; known options: @known @$e_known @tr\n REX = <<<$conf_rex>>>\n";
 	return;
     }
+    undef $conf_rex if $item eq 'extra_config_keys';
 
     $config->{$item} = \@options;
 }
@@ -1753,7 +1782,7 @@ SPACE).
 
 C<_out_frames[QQPRE//QQPOST]> is replaced by a verbose listing of frames.
 "simple" frames are output one-per-line (with the value surrounded by
-C<QQPRE> and Q<QQPOST>); fields of other frames are output one-per-line.
+C<QQPRE> and C<QQPOST>); fields of other frames are output one-per-line.
 If one omits the leading C<_>, then C<__binary_DATA__> replaces the value
 of binary fields.
 
@@ -2208,11 +2237,11 @@ sub interpolate_with_flags ($$$) {
 	@data = split $p, $data, -1;
     }
     if ($flags =~ /n/) {
-	my $track = $self->{parent}->track or return;
+	my $track = $self->track1 or return;
 	@data = $data[$track - 1];
     }
     for my $d (@data) {
-	$d = $self->{parent}->interpolate($d) if $flags =~ /I/;
+	$d = $self->interpolate($d) if $flags =~ /I/;
 	unless ($flags =~ /b/) {
 	    $d =~ s/^\s+//;
 	    $d =~ s/\s+$//;
@@ -3183,18 +3212,22 @@ tag is automatically upgraded from C<ID3v1>, it is most probably assumed to be
 in the "standard" C<iso-8859-1> encoding.  Thus impossibility to
 distinguish "unknown, assumed C<iso-8859-1>" from "known to be C<iso-8859-1>"
 in C<ID3v2>, essentially, makes any encoding specified in the tag "unknown"
-(or, at least, "untrusted").
+(or, at least, "untrusted").  (Since the upgrade [or a chain of upgrades]
+from the C<ID3v1> tag to the C<ID3v2> tag can result in any encoding of
+the "supposedly C<iso-8859-1>" tag, one cannot trust the content of
+C<ID3v2> tag even if it stored as Unicode strings.)
 
 This is why this module provides what some may consider only lukewarm support
 for encoding field in ID3v2 tags: if done fully automatic, it can allow
-instant propagation of wrong information; and propagation in a form which
-is very hard to undo.
+instant propagation of wrong information; and this propagation is in a form
+which is quite hard to undo (but still possible to do with suitable settings
+to this module; see L<mp3info2/"Examples on dealing with broken encodings">).
 
 Likewise, the same happens with the C<artist> field in C<ID3v1>.  Since there
 is no way to specify just "artist, type unknown" in C<ID3v2> tags, when
 C<ID3v1> tag is automatically upgraded to C<ID3v2>, the content would most
 probably be put in the "main performer", C<TPE1>, tag.  As a result, the
-content of C<TPE1> tag is also "untrusted" - it may contain, e.g., composer.
+content of C<TPE1> tag is also "untrusted" - it may contain, e.g., the composer.
 
 In my opinion, a different field should be used for "known to be
 principal performer"; for example, the method performer() (and the

@@ -1,3 +1,31 @@
+Release Name: 0.9714
+====================
+
+Tag.pm: misprint in POD.
+  Add new variable MP3TAG_SKIP_WEAKEN for debugging (does not help with 5.005).
+  Make documentation of encoding settings more clear.
+  New configuration variable `extra_config_keys'.
+  `n' and `I' in interpolation flags were broken.
+  interpolate_with_flags(): take into account that ->track may be not a
+    number, as "1/17".
+
+ID3v2.pm: do not prepend "(C) " to empty TCOP fields.
+
+mp3info2: -F "WHOLE > file" would not write if the given tags are not present.
+  would skip -F "WHOLE ?< file" if corresponding tags were present (as opposed to fields).
+  Long description for TDRC was missing.
+  Long description was wrongly handled in __frames_as_printable().
+  New configuration variable `empty-F-deletes'.
+  The default now is to remove the frame if value -F is empty.
+  Take into account `decode_encoding_files' when processing -F "FRAME < file";
+
+transliterate_win1251.pm: was not updated during move to a subdirectory.
+
+typeset_audio_dir: better docs.
+  Typeset track number without second part, and allowing customization too.
+
+CDDB_File.pm: take into account that ->track may be not a number, as "1/17".
+
 Release Name: 0.9713
 ====================
 

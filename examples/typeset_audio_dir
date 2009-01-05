@@ -1,6 +1,6 @@
 #!/usr/bin/perl -w
 
-$VERSION = 0.04;
+$VERSION = 0.06;
 
 use strict;
 use MP3::Tag;
@@ -29,6 +29,7 @@ if ($opt{e}) {	# Comma-separated, each 'encoding' or '[d][h][o]:encoding'
     }
   }
 }
+$opt{n} = $ENV{TYPESET_AUDIO_TRACK} || 1 if $opt{n};
 my $out_envelop_cdcover = \*STDOUT;
 my $out_envelop_text;
 my $out_envelop_backcover;
@@ -258,7 +259,8 @@ sub print_mp3 {
   $this->{top} = $opt{1} ? $tag->interpolate($opt{1}) : $performers[-1];
   $this->{author} = $tag->interpolate($opt{2});	# default '%a'
   $this->{title} = $tag->interpolate(@parts <= $opt{t} ? '%t' : '%l');
-  $this->{track} = $tag->track if $opt{n} and @parts <= $opt{t};
+  $this->{track} = $tag->interpolate($opt{n} eq 1 ? '%{mA}%{n1}' : $opt{n})
+    if $opt{n} and @parts <= $opt{t};
   $this->{len} = $tag->interpolate('%S') if $opt{T};
   my $l_part = $opt{a};
   $l_part = $#parts if $l_part >= $#parts;
@@ -782,14 +784,14 @@ typeset_audio_dir - produce B<TeX> listing of directories with audio files.
 
   # E.g.: current directory contains 1 subdirectory-per-performer.
   # Inside each directory the structure is
-  #   Composer/single*.mp3              (output <title> field)
+  #   Composer/single*.mp3         (fine-grain output: <title> field)
   # and
-  #   Composer/MultiPart/part*.mp3      (output <album> field)
-  # Emit year and duration info
+  #   Composer/MultiPart/part*.mp3 (fine-grain output: <album> field)
+  # Emit year and duration info; use "Quartets" as basename
   typeset_audio_dir -y -T -B Quartets *
 
   # Likewise, but this directory structure is w.r.t. current directory;
-  # Do not emit year and duration
+  # Do not emit year and duration, output to STDOUT
   typeset_audio_dir .
   typeset_audio_dir
 
@@ -799,8 +801,7 @@ typeset_audio_dir - produce B<TeX> listing of directories with audio files.
   typeset_audio_dir -@ -ynTL -1 "@a" -2 "@l" -t 1000 -a 1000 -B All .
 
   # Likewise, but the name is based on the album; ignore comments
-  typeset_audio_dir    -yTn -1 "" -2 ""  -c -t -1e100 -a -1e100 -B All_short .
-
+  typeset_audio_dir    -yTn -c -1 "" -2 "" -t -1e100 -a -1e100 -B All_short .
 
 =head1 DESCRIPTION
 
@@ -860,7 +861,8 @@ Emit duration information.
 
 =item B<-n>
 
-Emit track number.
+Enable emit track number.  Environment variable TYPESET_AUDIO_TRACK
+may contain the format to interpolate for typesetting.
 
 =item B<-1>
 
@@ -892,7 +894,7 @@ second-level header in F<single*.mp3> would create a new second-level
 heading.  However, similar changes in F<part*.mp3> will not create a
 new heading.
 
-B<NOTE:> maybe this default if 2 is not very intuitive.  It is
+B<NOTE:> maybe this default of 2 is not very intuitive.  It is
 recommended to explicitely set this option to the value you feel
 appropriate (C<1e100> would play role of infinity).
 
@@ -915,12 +917,13 @@ Sets encodings for output files, directory names (when uses to generate
 headings), and hint files.  B<ENCODINGS> is a comma-separated list of
 directives; each directive is either an encoding name (to use for all targets),
 or C<TARGET_LETTERS:encoding>.  Target letters are C<o>, C<d>, and C<h>
-correspondingly.  Use 0 instead of an encoding to do byte-oriented read/write.
+for output, names of directories, and files F<.top_heading> correspondingly.
+Use 0 instead of an encoding to do byte-oriented read/write.
 
 =item B<-c>
 
-If not given, the frame C<TXXX[add-to:file-by-person,l,t,n]> will be
-inspected, and used as a "comment" for a record.
+What to use as "comment" for a record (a part which is typeset differently).
+If not given, the ID3v2 frame C<TXXX[add-to:file-by-person,l,t,n]> is used.
 
 =back
 
@@ -976,8 +979,8 @@ Do not forget that if you can't describe a complicated layout by
 command-line options, you still have a possibility to run this script
 many times (once per directory with "handable layout", using B<-B> and
 other options suitable for this subdirectory).  Then you can use
-B<LaTeX> C<\input> directives to include the generated files into the
-toplevel C<LaTeX> file.
+B<LaTeX> C<\input> directives to include the generated F<basename_list.tex>
+files into the toplevel C<LaTeX> file.
 
 You can also redefine C<\preDir * \posDir> to do nothing, and put the
 necessary code to generate the headers into the top-level file.
@@ -1001,6 +1004,11 @@ contents" for the combined "short+long" cdbooklet.  (Of course, one
 can change the values of macros C<\dirSIZE>, C<\COLUMNS>, size of
 skips and of type [as C<\scriptsize> above] to suit your needs - the
 point is that they should not be necessarily the same for the second list.)
+
+=head1 WORKFLOW
+
+Put all the "toplevel" directories as subdirectories of the current directory,
+and put the heading 
 
 =cut
 

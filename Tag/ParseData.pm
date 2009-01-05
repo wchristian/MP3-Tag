@@ -214,11 +214,12 @@ sub parse_one {
 # and which entries overwrite which ones; the user can reverse one of them
 # by sorting config('parse_data') in the opposite order; but not both.
 # Only practice can show whether our choice is correct...   How to customize?
-sub parse {
+
+sub parse {	# Later recipies can access results of earlier ones.
     my ($self,$what) = @_;
 
     return $self->{parsed}->{$what}	# Recalculate during recursive calls
-	if not $self->{parsing} and exists $self->{parsed};
+	if not $self->{parsing} and exists $self->{parsed}; # Do not recalc after finish
 
     my $data = $self->get_config('parse_data');
     return unless $data and @$data;

@@ -1,6 +1,6 @@
 #!/usr/bin/perl -w
 use strict;
-package transliterate_win1251;
+package Encode::transliterate_win1251;
 
 my $debug;
 

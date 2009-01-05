@@ -15,7 +15,7 @@ use vars qw /%format %long_names %res_inp @supported_majors %v2names_to_v3
 	     %back_splt %embedded_Descr
 	    /;
 
-$VERSION="0.9712";
+$VERSION="0.9714";
 @ISA = 'MP3::Tag::__hasparent';
 
 my $trustencoding = $ENV{MP3TAG_DECODE_UNICODE};
@@ -478,11 +478,19 @@ sub __frame_as_printable {
 	: "$pre$val->{$_}$post" ), @keys) . $miss;
 }
 
+sub __f_long_name ($$) {
+  my ($self,$fr) = (shift, shift);
+  (my $short = $fr) =~ s/^(\w{4})\d{2,}/$1/;
+  $long_names{$short} || '???';
+}
+
 sub __frames_as_printable {
   my ($self,$fr_sep,$fn_sep) = (shift, shift, shift);
   my $h = $self->get_frame_ids();
-  join $fr_sep, map sprintf('%-40s', $self->get_frame_descr($_) . "  ($long_names{$_})") . $fn_sep .
-		    $self->__frame_as_printable($_,@_), sort keys %$h;
+  join $fr_sep, map sprintf('%-40s', 
+			    $self->get_frame_descr($_)
+			      . "  (" . $self->__f_long_name($_) . ")")
+		    . $fn_sep . $self->__frame_as_printable($_,@_), sort keys %$h;
 }
 
 
@@ -2777,7 +2785,7 @@ BEGIN {
 			     # re2b=>{'\bRemix\b'=>'(RX)', '\bCover\b'=>'(CR)'}
 			    }],
 		   TCOP => [$encoding,
-			    {%$text_enc, re2 => {'^'=>'(C) '},
+			    {%$text_enc, re2 => {'^(?!\Z)'=>'(C) '},
 			     re2b => {'^(Copyright\b)?\s*(\(C\)\s*)?' => ''}}],
 		   # TDRC => [$encoding, $text_enc, data => 1],
 		   TFLT => [$encoding, {%$text_enc, func=>\&TFLT}],
@@ -2823,6 +2831,7 @@ BEGIN {
 		   TCOP => "Copyright message",
 		   TDAT => "Date",
 		   TDLY => "Playlist delay",
+		   TDRC => "Recording time",
 		   TENC => "Encoded by",
 		   TEXT => "Lyricist/Text writer",
 		   TFLT => "File type",
