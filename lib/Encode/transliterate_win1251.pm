@@ -1,4 +1,5 @@
 #!/usr/bin/perl -w
+$VERSION = '1.00';
 use strict;
 package Encode::transliterate_win1251;
 

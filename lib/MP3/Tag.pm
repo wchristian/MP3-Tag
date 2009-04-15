@@ -34,11 +34,12 @@ use MP3::Tag::ID3v2;
 use MP3::Tag::File;
 use MP3::Tag::Inf;
 use MP3::Tag::CDDB_File;
+use MP3::Tag::Cue;
 use MP3::Tag::ParseData;
 use MP3::Tag::LastResort;
 
 use vars qw/$VERSION @ISA/;
-$VERSION="0.9714";
+$VERSION="1.00";
 @ISA = qw( MP3::Tag::User MP3::Tag::Site MP3::Tag::Vendor
 	   MP3::Tag::Implemenation ); # Make overridable
 *config = \%MP3::Tag::Implemenation::config;
@@ -46,7 +47,7 @@ $VERSION="0.9714";
 package MP3::Tag::Implemenation;	# XXXX Old mispring...
 use vars qw/%config/;
 %config = ( autoinfo			  => [qw( ParseData ID3v2 ID3v1
-						 CDDB_File Inf filename
+						 CDDB_File Inf Cue filename
 						 LastResort )],
 	    cddb_files			  => [qw(audio.cddb cddb.out cddb.in)],
 	    v2title			  => [qw(TIT1 TIT2 TIT3)],
@@ -79,12 +80,13 @@ use vars qw/%config/;
 						  TXXX[cdindex_id] 0 }],
 	    id3v2_set_trusted_encoding0	  => [1],
 	    id3v2_fix_encoding_on_edit	  => [1],
+	    name_for_field_normalization  => ['%{composer}'],
 	    local_cfg_file		  => ['~/.mp3tagprc'],
 	    extra_config_keys		  => [],
 	  );
 {
   my %e;
-  for my $t (qw(V1 V2 FILENAME FILES INF CDDB_FILE)) {
+  for my $t (qw(V1 V2 FILENAME FILES INF CDDB_FILE CUE)) {
     $e{$t} = $ENV{"MP3TAG_DECODE_${t}_DEFAULT"};
     $e{$t} = $ENV{MP3TAG_DECODE_DEFAULT}  unless defined $e{$t};
     $config{"decode_encoding_" . lc $t} = [$e{$t}] if $e{$t};
@@ -172,9 +174,9 @@ It provides an easy way to access the functions of separate modules which
 do the handling of reading/writing the tags itself.
 
 At the moment MP3::Tag::ID3v1 and MP3::Tag::ID3v2 are supported for
-read and write; MP3::Tag::Inf, MP3::Tag::CDDB_File, MP3::Tag::File,
-MP3::Tag::LastResort are supported for read access (the information
-obtained by parsing CDDB files, F<.inf> file and the filename).
+read and write; MP3::Tag::Inf, MP3::Tag::CDDB_File, MP3::Tag::File, 
+MP3::Tag::Cue, MP3::Tag::LastResort are supported for read access (the information
+obtained by parsing CDDB files, F<.inf> file, the filename, and F<.cue> file).
 
 =over 4
 
@@ -266,7 +268,7 @@ Each found tag can then be accessed with $mp3->{tagname} , where tagname is
 a string returned by get_tags ;
 
 Use the information found in L<MP3::Tag::ID3v1>, L<MP3::Tag::ID3v2> and
-L<MP3::Tag::Inf>, L<MP3::Tag::CDDB_File> to see what you can do with the tags.
+L<MP3::Tag::Inf>, L<MP3::Tag::CDDB_File>, L<MP3::Tag::Cue> to see what you can do with the tags.
 
 =cut 
 
@@ -279,7 +281,7 @@ sub get_tags {
 
     # Will not create a reference loop
     local $self->{__proxy}[0] = $self unless $self->{__proxy}[0] or $ENV{MP3TAG_TEST_WEAKEN};
-    for $id (qw(ParseData ID3v2 ID3v1 Inf CDDB_File LastResort)) {
+    for $id (qw(ParseData ID3v2 ID3v1 Inf CDDB_File Cue LastResort)) {
 	my $ref = "MP3::Tag::$id"->new_with_parent($self->{filename}, $self->{__proxy});
 	next unless defined $ref;
 	$self->{$id} = $ref;
@@ -420,7 +422,7 @@ stored.  If comment, year or genre are found, the hash will have keys
 If an optional argument C<'from'> is given, the returned values (title,
 track number, artist, album name, the file comment, the year and genre) are
 array references with the first element being the value, the second the
-tag (C<ID3v2> or C<ID3v1> or C<Inf> or C<CDDB_File> or C<filename>) from which
+tag (C<ID3v2> or C<ID3v1> or C<Inf> or C<CDDB_File> or C<Cue> or C<filename>) from which
 it is taken.
 
 (Deprecated name 'song' can be used instead of 'title' as well.)
@@ -577,7 +579,7 @@ sub disk_alphanum ($) {
   sprintf "%0${l}d", $r1;
 }
 
-my %ignore_0length = qw(ID3v1 1 CDDB_File 1 Inf 1);
+my %ignore_0length = qw(ID3v1 1 CDDB_File 1 Inf 1 Cue 1);
 
 sub auto_field($;$) {
     my ($self, $elt, $from) = (shift, shift, shift);
@@ -591,7 +593,7 @@ sub auto_field($;$) {
 	next unless exists $self->{$part};
 	next if $do_can and not $self->{$part}->can($elt);
 	next unless defined (my $out = $self->{$part}->$elt());
-	# Ignore 0-length answers from ID3v1, CDDB_File, and Inf
+	# Ignore 0-length answers from ID3v1, CDDB_File, Cue, and Inf
 	next if not length $out and $ignore_0length{$part}; # These return ''
 	return [$out, $part] if $from;
 	return $out;
@@ -720,7 +722,8 @@ Possible items are:
 =item autoinfo
 
 Configure the order in which ID3v1-, ID3v2-tag and filename are used
-by autoinfo.  Options can be "ID3v1", "ID3v2", "CDDB_File", "Inf", "filename".
+by autoinfo.  The default is C<ParseData, ID3v2, ID3v1, CDDB_File, Inf, Cue,
+filename, LastResort>.  Options can be elements of the default list.
 The order
 in which they are given to config also sets the order how they are
 used by autoinfo. If an option is not present, it will not be used
@@ -747,7 +750,7 @@ never be used.
 
 Configure the order in which ID3v1- and ID3v2-tag are used
 by the corresponding methods (e.g., comment()).  Options can be
-"ID3v1", "ID3v2", "Inf", "CDDB_File", "filename". The order
+the same as for C<autoinfo>.  The order
 in which they are given to config also sets the order how they are
 used by comment(). If an option is not present, then C<autoinfo> option
 will be used instead.
@@ -974,13 +977,15 @@ ID3v2 encodeing).
 
 =item decode_encoding_cddb_file
 
+=item decode_encoding_cue
+
 =item decode_encoding_files
 
 =item encode_encoding_files
 
 Encodings of C<ID3v1>, non-Unicode frames of C<ID3v2>, filenames,
-external files, F<.inf> files and C<CDDB> files correspondingly.  The
-value of 0 means "latin1".
+external files, F<.inf> files, C<CDDB> files, F<.cue> files,
+and user-specified files correspondingly.  The value of 0 means "latin1".
 
 The default values for C<decode_encoding_*> are set from the
 corresponding C<MP3TAG_DECODE_*_DEFAULT> environment variable (here
@@ -1065,6 +1070,11 @@ but most things work acceptably).
 If FALSE (default), writing of ID3v2.4 is prohibited (it is not fully
 supported; allow on your own risk).
 
+=item name_for_field_normalization
+
+interpolation of this string is used as a person name to normalize
+title-like fields.  Defaults to C<%{composer}>.
+
 =item extra_config_keys
 
 List of extra config keys (default is empty); setting these would not cause
@@ -1099,10 +1109,11 @@ sub config {
 		   parse_minmatch id3v23_unsync id3v23_unsync_size_w
 		   id3v2_recalculate ignore_trusted_encoding0_v2
 		   id3v2_set_trusted_encoding0 write_v24 prohibit_v24
-		   encode_encoding_files encode_encoding_v1
+		   encode_encoding_files encode_encoding_v1 encode_encoding_cue
 		   decode_encoding_v1 decode_encoding_v2
 		   decode_encoding_filename decode_encoding_files
 		   decode_encoding_inf decode_encoding_cddb_file
+		   name_for_field_normalization
 		   id3v2_frames_autofill local_cfg_file);
     my @tr = map "translate_$_", qw( title track artist album comment
 				     year genre comment_collection
@@ -1151,6 +1162,22 @@ sub get_config1 {
   my $self = shift;
   my $c = $self->get_config(@_);
   $c and $c->[0];
+}
+
+=item name_for_field_normalization
+
+  $name = $mp3->name_for_field_normalization;
+
+Returns "person name" to use for normalization of title-like fields;
+it is the result of interpolation of the configuration variable
+C<name_for_field_normalization> (defaults to C<%{composer}> - which, by
+default, expands the same as C<%{TCOM|a}>).
+
+=cut
+
+sub name_for_field_normalization ($) {
+  my $self = shift;
+  $self->interpolate( $self->get_config1("name_for_field_normalization") );
 }
 
 =item pure_filetags
@@ -1753,7 +1780,8 @@ and the rest is reinterpreted as if it started with C<%{>.
 
 String starting with I<LETTER>C<:> or C<!>I<LETTER>C<:> are treated similarly
 to ID3v2 conditionals, but the condition is that the corresponding escape
-expands to non-empty string.  Same applies to non-time related 2-char escapes.
+expands to non-empty string.  Same applies to non-time related 2-char escapes
+and user variables.
 
 =item *
 
@@ -1992,7 +2020,7 @@ sub _interpolate ($$;$$) {
 	    $str = $self->$meth();
 	} elsif ($what eq '{' and # $frame_bra has 1 group, No. 5
 		 # 2-char fields as above, except for [mMS]L|SML
-		 $_[1] =~ s/^(!)?(([talygcnfFeEABD]|ID3v[12]|ID3v2-modified|aC|tT|c[TC]|i[DI]|n[012]|m[A12])(:|\|\|?)|$frame_bra)//) {
+		 $_[1] =~ s/^(!)?(([talygcnfFeEABD]|ID3v[12]|ID3v2-modified|aC|tT|c[TC]|i[DI]|n[012]|m[A12]|U\d+)(:|\|\|?)|$frame_bra)//) {
 	    # Alternation with simple/complicated stuff
 	    my ($neg, $id, $simple, $delim) = ($1, $2, $3, $4);
 	    if ($delim) {	# Not a frame id...
@@ -2041,7 +2069,7 @@ sub _interpolate ($$;$$) {
 	      die "Negation and alternation incompatible in interpolation"
 		if $alt and $neg;
 	      my $have;
-	      if ($simple and 2 >= length $simple) {
+	      if ($simple and (2 >= length $simple or $simple =~ /^U/)) {
 		my $s = (1 == length $simple ? $simple : "{$simple}");
 		$str = $self->interpolate("%$s");
 		$have = length($str);
@@ -2993,6 +3021,7 @@ environment.  Assumed encodings (0 or encoding name): for read access:
   MP3TAG_DECODE_V1_DEFAULT		MP3TAG_DECODE_V2_DEFAULT
   MP3TAG_DECODE_FILENAME_DEFAULT	MP3TAG_DECODE_FILES_DEFAULT
   MP3TAG_DECODE_INF_DEFAULT		MP3TAG_DECODE_CDDB_FILE_DEFAULT
+  MP3TAG_DECODE_CUE_DEFAULT
 
 for write access:
 
@@ -3081,18 +3110,18 @@ invocation">).
 
 E.g., it is recommended to make a local customization file with
 
-  eval 'require Music_Normalize_Fields';
+  eval 'require Normalize::Text::Music_Fields';
   for my $elt ( qw( title track artist album comment year genre
 		    title_track artist_collection person ) ) {
     no strict 'refs';
-    MP3::Tag->config("translate_$elt", \&{"Music_Normalize_Fields::normalize_$elt"})
-      if defined &{"Music_Normalize_Fields::normalize_$elt"};
+    MP3::Tag->config("translate_$elt", \&{"Normalize::Text::Music_Fields::normalize_$elt"})
+      if defined &{"Normalize::Text::Music_Fields::normalize_$elt"};
   }
-  MP3::Tag->config("short_person", \&Music_Normalize_Fields::short_person)
-      if defined &Music_Normalize_Fields::short_person;
+  MP3::Tag->config("short_person", \&Normalize::Text::Music_Fields::short_person)
+      if defined &Normalize::Text::Music_Fields::short_person;
 
 and install the (supplied, in the F<examples/modules>) module
-F<Music_Normalize_Fields.pm> which enables normalization of person
+L<Normalize::Text::Music_Fields> which enables normalization of person
 names (to a long or a short form), and of music piece names to
 canonical forms.
 
@@ -3280,7 +3309,8 @@ configuration variable C<local_cfg_file>.
 =head1 SEE ALSO
 
 L<MP3::Tag::ID3v1>, L<MP3::Tag::ID3v2>, L<MP3::Tag::File>,
-L<MP3::Tag::ParseData>, L<MP3::Tag::Inf>, L<MP3::Tag::CDDB_File>, L<mp3info2>,
+L<MP3::Tag::ParseData>, L<MP3::Tag::Inf>, L<MP3::Tag::CDDB_File>,
+L<MP3::Tag::Cue>, L<mp3info2>,
 L<typeset_audio_dir>.
 
 =head1 COPYRIGHT

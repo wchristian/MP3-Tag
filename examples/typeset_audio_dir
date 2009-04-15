@@ -1,20 +1,46 @@
 #!/usr/bin/perl -w
 
-$VERSION = 0.06;
+$VERSION = '1.00';
 
 use strict;
-use MP3::Tag;
+use MP3::Tag '0.9711';		# %{mA}
 use File::Find;
 use Getopt::Std 'getopts';
 use Cwd;
 
 $Getopt::Std::STANDARD_HELP_VERSION = 1;
-my %opt = (2 => '%a', a => 2, t => 1);
+my %opt = my %ini_opt = (2 => '%a', a => 2, t => 1, F => 'T2A');
+my @INI_ARGV = @ARGV;
 # Level=2 header; Level=1 header (default - dir),
 # use duration, year, whole dates, replace @ by %, basename of output files,
 # ignore 'author' on level > this in directory tree
 # use 'album' for titles with depth above this..., encodings, no comment,lyrics
-getopts('2:1:TyYn@B:a:t:e:cL', \%opt);
+getopts(my $opts = '2:1:TyYn@B:a:t:e:cLN:P:F:', \%opt);
+my(%plan, $both);
+
+sub set_plan ($) {
+  my $how = shift;
+  if ($how eq 'long') {
+    %opt = (%opt, 1 => '', 2 => '%l', t => 1e100, a => 1e100);
+  }
+  if ($how eq 'short') {
+    %opt = (%opt, 1 => '', 2 => '', t => -1e100, a => -1e100, c => 1);
+  }
+}
+
+my $ini_c = $opt{c};
+if ($opt{P}) {
+  my @plan = split m/,/, $opt{P};	# Currenlty only one item in the plan
+  @plan{@plan} = (1) x @plan;
+  $both = 1 if $plan{short} and $plan{long};
+  die "You can't have both short and long without -B" if $both and not $opt{B};
+  %opt = %ini_opt;
+  set_plan 'long'  if $plan{long};
+  set_plan 'short' if $plan{short};
+  @ARGV = @INI_ARGV;		# Redo getopts with different defaults
+  getopts($opts, \%opt);
+}
+
 if ($opt{'@'}) {
   $opt{$_} =~ s/\@/\%/g for keys %opt;
 }
@@ -30,23 +56,43 @@ if ($opt{e}) {	# Comma-separated, each 'encoding' or '[d][h][o]:encoding'
   }
 }
 $opt{n} = $ENV{TYPESET_AUDIO_TRACK} || 1 if $opt{n};
-my $out_envelop_cdcover = \*STDOUT;
-my $out_envelop_text;
-my $out_envelop_backcover;
-my $out_envelop_12cm;
+
+ # booklet using precooked (broken) style cd-cover
+ # Since it is very feature-poor, we did not try to debug a more decorated
+ # appearance...
+my $out_cdcover_std = \*STDOUT;
+my $out_cdcover_our;		# jewel case booklet using our `style'
+my $out_normal_text;		# booklet for print on "usual size" paper
+my $out_envelop_backcover;	# Back insert into a jewel case
+my $out_titles;			# List of top Headings
+my $out_common;			# Common definitions
 my $out_list = \*STDOUT;
 if (defined $opt{B}) {
   $opt{B} =~ s,\\,/,g;
   open LIST, "> $opt{B}_list.tex" or die "open `$opt{B}_list.tex' for write: $!";
   select LIST;
   $out_list = \*LIST;
+  if (-e "$opt{B}_titles.tex" and not -w "$opt{B}_titles.tex") {
+    warn "Will not overwrite Read-Only file `$opt{B}_titles.tex'.\n";
+  } else {
+    open TITLES, "> $opt{B}_titles.tex"
+      or die "open `$opt{B}_titles.tex' for write: $!";
+    $out_titles = \*TITLES;
+  }
+  if (-e "$opt{B}_common.tex" and not -w "$opt{B}_common.tex") {
+    warn "Will not overwrite Read-Only file `$opt{B}_common.tex'.\n";
+  } else {
+    open COMMON, "> $opt{B}_common.tex"
+      or die "open `$opt{B}_common.tex' for write: $!";
+    $out_common = \*COMMON;
+  }
   if (-e "$opt{B}_cdcover.tex") {
     warn "Will not overwrite existing file `$opt{B}_cdcover.tex'.\n";
-    undef $out_envelop_cdcover;
+    undef $out_cdcover_std;
   } else {
     open CDCOV, "> $opt{B}_cdcover.tex"
       or die "open `$opt{B}_cdcover.tex' for write: $!";
-    $out_envelop_cdcover = \*CDCOV;
+    $out_cdcover_std = \*CDCOV;
   }
   if (-e "$opt{B}_backcover.tex") {
     warn "Will not overwrite existing file `$opt{B}_backcover.tex'.\n";
@@ -60,19 +106,46 @@ if (defined $opt{B}) {
   } else {
     open TXT, "> $opt{B}_text.tex"
       or die "open `$opt{B}_text.tex' for write: $!";
-    $out_envelop_text = \*TXT;
+    $out_normal_text = \*TXT;
   }
   if (-e "$opt{B}_cdbooklet.tex") {
     warn "Will not overwrite existing file `$opt{B}_cdbooklet.tex'.\n";
   } else {
     open _12CM, "> $opt{B}_cdbooklet.tex"
       or die "open `$opt{B}_cdbooklet.tex' for write: $!";
-    $out_envelop_12cm = \*_12CM;
+    $out_cdcover_our = \*_12CM;
   }
 }
 if ($enc{o}) {
-  eval {binmode $out_list, ":encoding($enc{o})"} or warn $@;
+  if (defined $opt{B}) {
+    eval { binmode $out_list, ":encoding($enc{o})";
+	   binmode $out_titles, ":encoding($enc{o})"} or warn $@
+	     if defined $out_titles;
+  } else {
+    eval { binmode $out_cdcover_std, ":encoding($enc{o})"} or warn $@;
+  }
 }
+
+sub to_TeX ($) {
+  # Assume high-bit characters are letters
+  (my $in = shift) =~ s/([&_\$#%~])/\\$1/g;
+  $in =~ s/(\b|(?<=\.\.\.)|(?<=[\x80-\xFF]))`\B|`$/'/g;	# Quote: word-like`
+  $in =~ s/\B'(\b|(?=[\x80-\xFF]))|^'/`/g; # Quote: `word-like
+  $in =~ s/(\b|(?<=\.\.\.)|(?<=[\x80-\xFF]))"\B|"$/''/g; # Quote: word-like"
+  $in =~ s/\B"(\b|(?=[\x80-\xFF]))|^"/``/g; # Quote: "word-like
+  $in =~ s/\.{3}/\\dots{}/g;	# \dots
+  $in =~ s/\s+-\s+/---/g;	# em-dash with possible line breaks
+  $in =~ s/(?<=\b[[:upper:]]\.)\s+(?=[[:upper:]])/~/g;
+  $in =~ s/\bDvorák\b/Dvo\\v rák/g;
+  $in;
+}
+
+my $out_name = $opt{N}
+  ? to_TeX($opt{N}).'%'
+  : 'COLLECTION% Replace what is before "%" by the name of the collection';
+print $out_titles "\\makePreTitle{%\n$out_name\n}%\n" if $out_titles;
+
+
 
 # suppose that the directory structure is author/TIT1/TIT2.mp3 or author/TIT2.mp3
 # and TIT1 eq "%l"
@@ -87,9 +160,7 @@ sub align_numbers ($) {
   $in;
 }
 
-my @comments;
-my @performers;
-my @level;
+my(@comments, @performers, @level);
 
 # Called with short names; $File::Find::dir is set
 sub preprocess_and_sort_with_aligned_numbers {
@@ -148,20 +219,6 @@ sub unwind_dir {
   pop @level;
 }
 
-sub to_TeX ($) {
-  # Assume high-bit characters are letters
-  (my $in = shift) =~ s/([&_\$#%~])/\\$1/g;
-  $in =~ s/(\b|(?<=\.\.\.)|(?<=[\x80-\xFF]))`\B|`$/'/g;
-  $in =~ s/\B'(\b|(?=[\x80-\xFF]))|^'/`/g;
-  $in =~ s/(\b|(?<=\.\.\.)|(?<=[\x80-\xFF]))"\B|"$/''/g;
-  $in =~ s/\B"(\b|(?=[\x80-\xFF]))|^"/``/g;
-  $in =~ s/\.{3}/\\dots{}/g;
-  $in =~ s/\s+-\s+/---/g;
-  $in =~ s/(?<=\b[[:upper:]]\.)\s+(?=[[:upper:]])/~/g;
-  $in =~ s/\bDvorák\b/Dvo\\v rák/g;
-  $in;
-}
-
 sub to_duration ($) {
   my $s = shift;
   my $h = int($s/3600);
@@ -180,6 +237,8 @@ my $total_sec = 0;
 
 # Compare with postponed data, either emit, or postpone
 my $previous;
+my $previousTop;
+my $hadDir;
 sub print_this_mp3 ($) {
   my $new = shift;
 
@@ -197,8 +256,8 @@ sub print_this_mp3 ($) {
   return unless $changed;
 
   # Once per toplevel directory
-  if (defined $print_dir and cmp_u $new->{top}, $previous->{top}) {
-    $new->{print_top} = $new->{top};
+  if (defined $print_dir and cmp_u $new->{top}, $previousTop) {
+    $previousTop = $new->{print_top} = $new->{top};
     undef $print_dir;
   }
   # Author may be ignored in deep directories
@@ -212,16 +271,18 @@ sub print_this_mp3 ($) {
   $previous = $new;
   return unless %$this;
 
-  # Once per directory given as argument to the script
+  # Once per directory given as argument to the script, or marked `toplevel'
   if (defined $this->{print_top}) {
-    print "\n\\preDir ";
-    print to_TeX $this->{print_top};
-    print "\\postDir\n";
+    my $pr = to_TeX $this->{print_top};
+    print $out_titles "\\sepTitle\n" if $hadDir and $out_titles;
+    print $out_titles "$pr%\n" if $out_titles;
+    print "\n\\preSection $pr\\postSection\n";
+    $hadDir++;
   }
   if ($this->{print_author}) {
-    print "\n\\preauthor ";
+    print "\n\\preSubSection ";
     print to_TeX $this->{author};
-    print "\\postauthor\n";
+    print "\\postSubSection\n";
   }
   my $comment = '';
   $comment = "\\precomment " . to_TeX($this->{comment}) . "\\postcomment "
@@ -229,8 +290,9 @@ sub print_this_mp3 ($) {
   my $year = (defined $this->{year} ? $this->{year} : '');
   $year .= '\hasSyncLyrics' if $this->{syncLyr};
   $year .= '\hasUnsyncLyrics' if $this->{unsyncLyr};
+  $year .= '\hasAPIC' if $this->{APIC};
   if ($opt{T}) {
-    $total_sec += $this->{len};
+    $total_sec += $this->{len}; # on 2nd pass too, but the result is ignored
     my $dur = to_duration $this->{len};
     $dur .= '\postduration ' if length $year;
     $year = "$dur$year"
@@ -269,6 +331,13 @@ sub print_mp3 {
 
   my $c = !$opt{c}
     && $tag->select_id3v2_frame_by_descr('TXXX[add-to:file-by-person,l,t,n]');
+  if (defined $c) {
+    $c =~ s/^\(\s*([^()]*?)\s*\)$/$1/;
+    # Remove $c from title if duplicated there;
+    # effectively, $c is italizied inside title
+    $this->{title} =~ s/\s*\(\s*\Q$c\E\s*\)$//
+      or $this->{title} =~ s/\s*(\b|(?!\w))\Q$c\E$//;
+  }
   $this->{comment} = (defined $c and length $c) ? "($c)" : $comments[-1];
 
   if ($opt{y}) {
@@ -287,43 +356,84 @@ sub print_mp3 {
   if ($opt{L}) {
     $this->{syncLyr} = $tag->have_id3v2_frame('SYLT');
     $this->{unsyncLyr} = $tag->have_id3v2_frame('USLT');
+    $this->{APIC} = $tag->have_id3v2_frame('APIC');
   }
   print_this_mp3($this);
   return;
 }
 
+############################################# Now prepare LaTeX preambles:
+
 my $oenc = $enc{o} || 'utf8';
-my $common_enc = <<'EOP';
+my $common_enc = <<EOP . <<'EOPQ2'; # EOP interpolates!
 
-\usepackage[T2A]{fontenc}
-EOP
+% T2A+textcomp allow common Cyrillic AND Latin; since not always available:
+% consider T1 (best for purely Latin docs); OT1 is not as good.
+\\usepackage[$opt{F}]{fontenc}
 
-$common_enc .= <<EOP;
 \\usepackage[$oenc]{inputenc}
 EOP
-
-$common_enc .= <<'EOP';
 %\usepackage[utf8]{inputenc}
 %\usepackage[latin1]{inputenc}
 % cp866 for DosCyrillic, cp1251 for WinCyrillic
 %\usepackage[cp866]{inputenc}
 %\usepackage[cp1251]{inputenc}
-%\usepackage[russian]{babel}
+%\usepackage[russian]{babel}   % Load language file for non-English hyphenation
 
-\usepackage{textcomp}		% More Unicode symbols
+\usepackage{textcomp}	% More Unicode symbols \textFOO, and accented Latin
 
+EOPQ2
+
+sub output_setup ($) {
+  my($how, $out) = (shift);
+  $out = <<'EOP';
+% For \normalsize=10pt documentclasses: \small = 9pt, \footnotesize = 8pt,
+%                                \scriptsize = 7pt, \tinyish = 6pt, \tiny = 5pt
 EOP
+  for my $type (qw(Flap Title Section SubSection Record)) {
+    next unless $how->{"${type}Font"}; # Flap and Title not in all styles
+    $out .= <<EOP if $how->{"${type}NameFont"};
+\\def\\${type}NameFont{$how->{"${type}NameFont"}}
+EOP
+    $out .= <<EOP;
+\\def\\${type}Font{$how->{"${type}Font"}}
+\\def\\${type}Squeeze{\\squeezeContunuationLines}
+EOP
+  }
+  $out .= <<EOP;
+\\def\\COLUMNS{$how->{columns}}
 
-my $common1 = <<'EOP';
+%%% This is very squeezed; increase by 0.8ex to loosen:
+\\def\\preSectionSKIP{0.3ex plus 0.6ex minus 0.3ex}
+\\def\\postSectionSKIP{0.05ex plus 0.6ex minus 0.15ex}
+\\def\\preSubSectionSKIP{0pt}
+\\def\\postSubSectionSKIP{0pt}
+EOP
+}
+
+my $common = <<'EOP';
+
+\def\squeezeContunuationLines{% typesets continuation lines very squeezed
+   % ARGS = BETWEEN LINES / +ITS INC / BASELINE-SKIP-in-height-of(0) / PARSKIP
+   \contunuationLineSkip{-0.2ex}{plus 0.24ex}{1.3}{-0.08ex plus 0.44ex}}
+
 %\pretolerance=-1%	Always hyphenation: always
 
-\def\hourmark#1{$\mathsurround0pt{}^{\scriptscriptstyle\circ}$}
-\newdimen\PREauthorSKIP
-\newdimen\POSTauthorSKIP
-\PREauthorSKIP 0pt\relax
-\POSTauthorSKIP 0pt\relax
-\def\preauthor{\pagebreak[1]\addvspace{\PREauthorSKIP}\bgroup\centering\bf}
-\def\postauthor{\par\egroup\addvspace{\POSTauthorSKIP}}
+\def\tinyish{\fontsize{6}{7}\selectfont} % Between \scriptsize and \tiny...
+
+%%%% This is actually not needed:
+%\newlength\Multicolsep		% Insert manually
+%% Changes with font size (this is very squeezed; increase by 0.8ex to loose)
+%\def\topMulticolsep{\setlength{\Multicolsep}{0.3ex plus 0.6ex minus 0.3ex}%
+%  \addvspace\Multicolsep}
+%\def\botMulticolsep{\setlength{\Multicolsep}{0.05ex plus 0.6ex minus 0.15ex}%
+%  \addvspace\Multicolsep}
+
+%\def\hourmark#1{$\mathsurround0pt{}^{\scriptscriptstyle\circ}$}
+\def\hourmark#1{\kern-.05em\textdegree\kern-.05em\relax}
+\def\preSubSection{\pagebreak[1]\addvspace{\preSubSectionSKIP}\bgroup\centering
+  \SubSectionFont \SubSectionSqueeze }
+\def\postSubSection{\par\egroup\addvspace{\postSubSectionSKIP}}
 \def\pretitle{\bgroup}
 \def\posttitle{\par\egroup}
 \def\precomment{ \bgroup\it}
@@ -365,23 +475,69 @@ my $common1 = <<'EOP';
 % \linewidth differs from \hsize by \left-\rightmargin's.
 \def\preyear#1\postyear{\addOnRight{[#1]}}
 
-% Make this more negative for denser type
-\parskip=-1.1pt plus 1.1pt\relax
+%   Two different variants for squeezing; 2nd interacts better with \parskip.
+%		  (\offinterlineskip messes multicol???)
+
+
+% Make this smaller for smaller skip between continuation lines of a record
+\def\squeezedHeight{0.83}	% First variant: use denser grid only
+\def\squeezeHeight{\baselineskip\squeezedHeight\baselineskip\relax}
+
+% This would switch off the grid typesetting (=\baselineskip) for most lines
+%   (separate lines mostly w.r.t. INTERline spacing, not BASEline spacing)
+% ARGS = BETWEEN LINES / +ITS INCR / BASELINE-SKIP-in-ht(0) / PARSKIP
+\def\contunuationLineSkip#1#2#3#4{\setbox 0\hbox{0}%
+  % #3=1.3 (rest as below): no effect on (most) lines with descenders/raisers
+  \baselineskip=\ht0\relax  \baselineskip=#3\baselineskip
+  \lineskiplimit=#1\relax
+  \def\myA{#2}\def\myB{}\ifx \myA \myB	% If #2 empty
+    \lineskip=#1\relax
+  \else
+    \lineskip=#1 #2\relax
+    \def\myB plus ##1\relax{\def\myA{##1}}\myB#2\relax
+    \advance\lineskiplimit\myA  \fi
+  % Make this more negative for smaller skip between records
+  %  (but better be larger than \lineskip)
+  \parskip=#4\relax	% After a paragraph (= one record)
+}
+
+% Make this more negative for smaller skip between records
+%  (but larger than in squeezeContunuationLines)
+\parskip=-0.2pt plus 1.1pt\relax	% After a paragraph (= one record)
+
+\def\topRULES{\vskip 1.2pt\hrule height1.7pt\vskip 1.2pt%
+  \hrule height0.8pt\relax\vskip 2.4pt\relax}
+\def\bottomRULES{\vskip 3.2pt\hrule height0.8pt%
+  \vskip 1.2pt\hrule height1.7pt\relax}
+
+\def\myLB{\discretionary{}{}{}}  % \linebreak[1] is mandatory in {center}???
+\def\sepTitle{\myLB/\myLB}
+
+\def\makeNPreTitle#1{{\TitleNameFont #1 }}	% Good for top of document
+\let\makePreTitle\makeNPreTitle
+\def\makePostTitle{}
+\def\makeFlapPreTitle#1{{\FlapNameFont #1 }}	% Good for backcover flaps...
+\def\makeFlapPostTitle{\addOnRight{\bf\tiny \today}}
 
 EOP
 
-if ($opt{L}) {
-  $common1 .= <<'EOP';
+if (1 or $opt{L}) {		# Allows inclusion of -L lists in non-L docs
+  $common .= <<'EOP';
 
-\def\hasUnsyncLyrics{\textcircled{\textsc{L}}}
-\def\hasSyncLyrics{\textcircled{\textsc{S}}}
-\def\reportLyricsSyntax{{\tiny\hasUnsyncLyrics/\hasSyncLyrics\quad---\quad
-  has (un)syncronized lyrics\par}}
+\newif\ifhaveLyrics \haveLyricsfalse
+\newif\ifhaveAPIC \haveAPICfalse
+\def\hasUnsyncLyrics{\global\let\ifhaveLyrics\iftrue \textcircled{\textsc{l}}}
+\def\hasSyncLyrics{\global\let\ifhaveLyrics\iftrue \textcircled{\textsc{s}}}
+\def\hasAPIC{\global\let\ifhaveAPIC\iftrue \textcircled{\textsc{i}}}
+\def\reportLyricsSyntaxEtc{\ifhaveLyrics{\tiny\hasUnsyncLyrics/\hasSyncLyrics\quad---\quad
+  has (un)syncronized lyrics\ifhaveAPIC ;\qquad \else \par \fi}\fi
+  \ifhaveAPIC{\tiny\hasAPIC\quad---\quad
+  has embedded image(s)\par}\fi }
 EOP
 } else {
-  $common1 .= <<'EOP';
+  $common .= <<'EOP';
 
-\def\reportLyricsSyntax{}
+\def\reportLyricsSyntaxEtc{}
 EOP
 }
 
@@ -393,56 +549,52 @@ my $cdcover_on = <<'EOP';
 %\begin{multicols}{4}
 EOP
 
-my $backcover_on = <<'EOP';
+my $base = defined $opt{B}? $opt{B} : '';	# Avoid warning
+my $backcover_on = <<'EOP' . <<EOPQ . <<'EOP2';
 %\begin{bookletsheets}
 %\begin{bookletsheetsTwo}
 %\begin{singlesheet}{Title}{Slip text}
 
 %%% Replace by backsheet* to get other direction of spines
 %\begin{backsheet}{% Set up title (possibly multiline)
-\begin{backcover-ml}{%
-{\bf Put your TITLE here}\tiny
-and add some content
-\addOnRight{\bf \today}%
-}
+\begin{backcover-ml}{\FlapFont	\FlapSqueeze
+  \let\makePreTitle\makeFlapPreTitle
+EOP
+  \\input{${base}_titles}%
+EOPQ
+  \makeFlapPostTitle}
+\let\makePreTitle\makeNPreTitle		% Reset back
+
+EOP2
+
+my $global_multicol_on = <<'EOP';
 
 \begin{multicols}{\COLUMNS}
 EOP
 
-my $base = defined $opt{B}? $opt{B} : '';	# Avoid warning
-my $envelop_12cm_on = <<EOP;
-%\\footnotesize
-%\\begin{center}
-%\\input{${base}_title}
-%\\end{center}
+my $title_rules_on = <<EOP;
+\\TitleFont		\\TitleSqueeze
+%%% Uncomment this for fine modifications of the top separator
+%    \\hrule height0pt\\vskip -1.2mm\\vskip 0pt\\hrule height0pt
+\\begin{center} \\unskip
+\\input{${base}_titles}%
+\\makePostTitle
+\\end{center}\\unskip                    % How else to remove the gap???
+%\\normalbaselines			% Somehow needed for multicol???
 
-\\vskip 3pt
-\\hrule height1.7pt\\relax
-\\vskip 1.2pt
-\\hrule height0.8pt\\relax
-\\vskip 3pt
+\\topRULES
+
+EOP
+
+my $recordSetup = <<'EOP';
+\RecordFont		\RecordSqueeze
+
+% "Inverse-indent" of continuation lines
+\leftskip=1.3em                             \parindent=-\leftskip\relax
 
 EOP
 
-
-
-sub common2 ($) {
-  my $which = shift;
-  (my $common2 = <<'EOP') =~ s/^%(\\\Q$which\E)\b/$1/m or die $which; # Uncomment $which
-% Choose a size which better fits the pages...
-%\small
-%\footnotesize
-%\scriptsize
-%\tiny
-
-\leftskip=1.3em
-\parindent=-\leftskip\relax
-
-EOP
-  $common2;
-}
-
-print $out_envelop_cdcover <<'EOP' if defined $out_envelop_cdcover;
+my $class_cdcover_std = <<'EOP';
 %\documentclass[12pt]{article}
 
 \documentclass{cd-cover}
@@ -453,9 +605,13 @@ EOP
 my $cdcover_set = <<'EOP';	# XXXX \small for backcover?
 
 \begin{document}
+\topskip 0.3pt\relax
 
-\def\preDir{\pagebreak[2]\bgroup\centering\bf\normalsize}
-\def\postDir{\par\egroup}
+\def\preSection{\pagebreak[2]\bgroup\centering\SectionFont
+  \SectionSqueeze
+  \addvspace{0.2ex}%
+  }
+\def\postSection{\par\egroup  \addvspace{.08ex}}
 \CDbookletMargin=1.5mm
 \CDbookletTopMargin=1.5mm
 \CDsingleMargin=1.5mm
@@ -465,10 +621,7 @@ my $cdcover_set = <<'EOP';	# XXXX \small for backcover?
 
 EOP
 
-print $out_envelop_cdcover $common_enc, $cdcover_set
-  if defined $out_envelop_cdcover;
-
-print $out_envelop_backcover <<'EOP' if defined $out_envelop_backcover;
+my $class_backcover = <<'EOP';
 %\documentclass[12pt]{article}
 
 \documentclass{cd-cover}
@@ -492,8 +645,6 @@ print $out_envelop_backcover <<'EOP' if defined $out_envelop_backcover;
 }{\endbacksheet}
 
 \usepackage{multicol}
-
-\def\COLUMNS{3}
 EOP
 
 my $set_columns = <<'EOP';
@@ -502,26 +653,25 @@ my $set_columns = <<'EOP';
 %\multicolsep 3pt plus 4pt minus 3pt
 % Need to put adjacent horizontal lines, so this is better:
 \multicolsep 0pt
-\newlength\Multicolsep		% Insert manually
-% Dynamically change:
-\def\myMulticolsep{\setlength{\Multicolsep}{0.7ex plus 0.9ex minus 0.7ex}%
-  \addvspace\Multicolsep}
 
 EOP
 
-$cdcover_set =~ s/\\normalsize\b/\\small/;
-print $out_envelop_backcover $set_columns, $common_enc, $cdcover_set
-  if defined $out_envelop_backcover;
-
-print $out_envelop_12cm <<'EOP' if defined $out_envelop_12cm;
-% Postprocess this file with something like
+my $duplex_instr_and_class =  <<EOP . <<'QEOP';
+%% Postprocess this file with something like
 %   dvips -t landscape -f < This_File.dvi | psbook | pstops "2:0(0,6cm)+1(0,-6cm)" > Output.ps
-% Some (broken) printers require finer tuning of file positions
-% for correct duplex.  E.g., to move the text 1.4mm to the left,
-%   dvips -t landscape -f < This_File.dvi | psbook | pstops "2:0(0,6.14cm)+1(0,-5.86cm)" > Output.ps
-% With some versions (of graphics.cfg?) one needs to invert the offsets:
+
+%% For more details, consult
+%      perldoc -F $0
+%      perldoc typeset_audio_dir
+EOP
+%% E.g., With some versions (of graphics.cfg?) one needs to invert the offsets:
 %   dvips -t landscape -f < This_File.dvi | psbook | pstops "2:0(0,-6cm)+1(0,6cm)" > Output.ps
+%% and/or shift all the page to compensate printer's problems:
 %   dvips -t landscape -f < This_File.dvi | psbook | pstops "2:0(0,-5.86cm)+1(0,6.14cm)" > Output.ps
+
+%% To duplex with binding along the long size of paper, modify as in
+%   dvips -t landscape -f < This_File.dvi | psbook | pstops "2:0(0,6cm)+1(0,-6cm)" | pstops "2:0,1U(1w,1h)" > Output-even_flipped.ps
+%   ps2pdf -dAutoRotatePages=/None Output-even_flipped
 
 \documentclass{article}
 
@@ -530,22 +680,19 @@ print $out_envelop_12cm <<'EOP' if defined $out_envelop_12cm;
 
 \usepackage{multicol}
 
-\def\COLUMNS{2}
+QEOP
 
-EOP
+$common .= <<'EOP' if defined $opt{B};
 
-print $out_envelop_12cm $set_columns, $common_enc if defined $out_envelop_12cm;
-print $out_envelop_12cm <<'EOP' if defined $out_envelop_12cm;
-
-% This page style adds a frame about the text area
+% Page style adding a frame about the text area (used only for *_cdbooklet.tex)
 \makeatletter
-\def\ps@framed{%	Add frame to current ornaments
-     \def\ps@framed@head{{%		Localize
+\def\ps@framed{%	Prepend frame to current ornaments
+     \def\ps@framed@head{{%		Localize, calculate and draw
 	\setlength\unitlength{1sp}%	So that \number works OK
 	\linethickness{0.2pt}%
 	% Text may actually go below \textheight - it gives the baseline...
 	%\advance\textheight\maxdepth	% It is localized anyway...
-	% Use this as a temporary register
+	% Use this as a temporary register for frame offset from text-box
 	\maxdepth=2truemm\relax
 	% Increase box size by 4mm
 	\advance\headsep -\maxdepth
@@ -562,112 +709,159 @@ print $out_envelop_12cm <<'EOP' if defined $out_envelop_12cm;
 		\end{picture}}%
 	\end{picture}%
      }}%
-     \let\ps@framed@oddhead\@oddhead
-     \let\ps@framed@evenhead\@evenhead
-     \def\@oddhead{\ps@framed@head\ps@framed@oddhead}%
-     \def\@evenhead{\ps@framed@head\ps@framed@evenhead}}
+     \let\ps@framed@oddhead\@oddhead	% current ornaments
+     \let\ps@framed@evenhead\@evenhead	% current ornaments
+     \def\@oddhead{\ps@framed@head\ps@framed@oddhead}%		% prepend
+     \def\@evenhead{\ps@framed@head\ps@framed@evenhead}}	% prepend
 \makeatother
-
 EOP
 
 my $set_headers = <<'EOP';
 \begin{document}
+\topskip 0.3pt\relax
 
-\pagestyle{framed}
-
-% \multicolsep + \extraSomething: \small => 1.2pt; \scriptsize => -1.4pt
-
-% These hardcoded 3pt, 4pt values are very questionable...
-% Work with footnotesize (ex=4.6pt);
-% with scriptsize (ex=3.2pt) one needs 1.5pt instead of 3pt...
-% The trick below: (1ex-1.5pt)
-% does not work with tiny (ex=2.2pt) by about 1.5pt; but if one corrects,
-% the line touches the header...
-
-% The calculations done by multicol are too complicated to grasp.
+% Calculations done by multicol to insert vspace are too complicated to grasp.
 % But they are effectively disabled by \nointerlineskip
-\def\SETDIR#1{\bgroup\centering\bf\dirSIZE#1\par\egroup
-	      \myMulticolsep\hrule
+\def\SETSEC#1{\bgroup\centering\SectionFont\SectionSqueeze
+	      #1\vphantom{q}\parskip0pt\relax\par\egroup	% add descender
+	      \addvspace{\postSectionSKIP}\hrule
 	      \vbox to 0pt{}\relax\nointerlineskip}
-\def\preDIR{\end{multicols}%
-   \hrule\vskip 4pt\relax}
-\def\preDIR{\end{multicols}%	% XXXX Why 0.5ex is needed???
-   \nointerlineskip\vbox to 0.5ex{}\relax\hrule\myMulticolsep}
-\def\PREDIRi{\let\PREDIR\preDIR}
-\let\PREDIR\PREDIRi			% Do nothing on the first invocation
+\def\preSECii{\end{multicols}%	% XXXX Why 0.5ex is needed???
+   \nointerlineskip\vbox to 0.5ex{}\relax\hrule\addvspace{\preSectionSKIP}}
+\def\preSECi{\let\preSEC\preSECii}
+\let\preSEC\preSECi			% Do nothing on the first invocation
 
-\def\preDir#1\postDir{\PREDIR\begin{multicols}{\COLUMNS}[\SETDIR{#1}]\relax}
-\def\dirSIZE{\normalsize}
+\def\preSection#1\postSection{\preSEC
+  \normalbaselines     % Somehow needed for multicol (with offinterlineskip)???
+  \begin{multicols}{\COLUMNS}[\SETSEC{#1}]\relax
+  \RecordSqueeze		% Needed?  Probably to undo \normalbaselines...
+  }
 
 EOP
 
-print $out_envelop_12cm $set_headers if defined $out_envelop_12cm;
-$set_headers =~ s/^(\\pagestyle\{.*})\s*//m or die;
-
-print $out_envelop_text <<'EOP' if defined $out_envelop_text;
+my $normal_text_class = <<'EOP';
 \documentclass[12pt]{article}
-\usepackage[margin=2cm,nohead,nofoot]{geometry}
+\usepackage[margin=1cm,nohead,nofoot]{geometry}
 \usepackage{multicol}
 
 EOP
 
-print $out_envelop_text $set_columns, $common_enc if defined $out_envelop_text;
-print $out_envelop_text <<'EOP' if defined $out_envelop_text;
+############################################ Output preambles
+for my $o (grep defined $_->[0],
+	   [$out_envelop_backcover,
+	    "$class_backcover$set_columns$common_enc$cdcover_set"
+	    . "$backcover_on",
+	    {qw(FlapNameFont \bfseries\scriptsize FlapFont  \tiny
+		TitleNameFont \bfseries\footnotesize      TitleFont \tinyish
+		SectionFont \bfseries\footnotesize
+		SubSectionFont \bfseries\scriptsize
+		RecordFont \tinyish columns 3 global_multicol 1 rules 1)}],
+	   [$out_cdcover_std, "$class_cdcover_std$common_enc$cdcover_set$cdcover_on",
+	    {qw(TitleNameFont \bfseries\tiny      TitleFont \tiny
+		SectionFont \bfseries\small SubSectionFont \bfseries\small
+		RecordFont \scriptsize columns 2)}],
+	   [$out_normal_text,
+	    "$normal_text_class$set_columns$common_enc$set_headers",
+	    {qw(TitleNameFont \bfseries\normalsize      TitleFont \small
+		SectionFont \bfseries\normalsize SubSectionFont \bfseries\small
+		RecordFont \footnotesize columns 2 rules 1)}],
+	   [$out_cdcover_our, "$duplex_instr_and_class$set_columns$common_enc"
+	    . "$set_headers",
+	    {qw(TitleNameFont \bfseries\normalsize      TitleFont \footnotesize
+		SectionFont \bfseries\normalsize SubSectionFont \bfseries\small
+		RecordFont \scriptsize columns 2 rules 1 frame 1)}]) {
+  my($out,$txt) = ($o->[0], $o->[1]);
+  print $out output_setup($o->[2]);
+  if (defined $opt{B}) {
+    print $out <<"EOQ" . <<'EOP';	# \include has extra \clearpage
 
-\def\COLUMNS{2}
+\\input{$opt{B}_common}%
+EOQ
+
+%\def\squeezeContunuationLines{% typesets continuation lines very squeezed
+%   % ARGS = BETWEEN LINES / +ITS INC / BASELINE-SKIP-in-height-of(0) / PARSKIP
+%   \contunuationLineSkip{-0.2ex}{plus 0.24ex}{1.3}{-0.08ex plus 0.44ex}}
 
 EOP
+  } else {
+    print $out $common;
+  }
+  print $out $txt if defined $txt;
+  print $out $title_rules_on if $o->[2]{rules};
+  print $out $global_multicol_on if $o->[2]{global_multicol};
+  print $out <<'EOP' if $o->[2]{frame};
 
-$set_headers =~ s/^(\\pagestyle\{.*})\b//m;
-print $out_envelop_text $set_headers if defined $out_envelop_text;
+\pagestyle{framed}
 
-for my $o (grep defined $_->[0],
-	   [$out_envelop_backcover, 'tiny'],
-	   [$out_envelop_cdcover, 'scriptsize'],
-	   [$out_envelop_text, 'footnotesize'],
-	   [$out_envelop_12cm, 'scriptsize']) {
-  my $out = $o->[0];
-  print $out $common1;
-  print $out $cdcover_on
-    if defined $out_envelop_cdcover and $out eq $out_envelop_cdcover;
-  print $out $backcover_on
-    if defined $out_envelop_backcover and $out eq $out_envelop_backcover;
-  print $out $envelop_12cm_on
-    if defined $out_envelop_12cm and $out eq $out_envelop_12cm;
-  print $out common2($o->[1]);
+EOP
+  print $out $recordSetup;
   print $out <<"EOP" if defined $opt{B};	# \include has extra \clearpage
 
-\\input{$opt{B}_list}
+\\input{$opt{B}_list}%
 
 EOP
 }
 
-my $optional_cont = <<'EOP';
-\iffalse
+print $out_common $common if defined $opt{B};
+
+my $long_list = $both ? "$opt{B}_list_long" : 'another_list';
+my $optional_cont = $both ? <<'EOB' : <<'EOF';
+\iftrue    % ================ Replace by \iffalse to not embed a longer list...
+EOB
+\iffalse   % ================ Replace by \iftrue to embed a longer list...
+EOF
+$optional_cont .= <<'EOQ' . <<EOI . <<'EOP';
   \pagebreak[4]				% Mandatory page break
-  \let\PREDIR\PREDIRi			% Reset multicolumn logic
+  \let\preSEC\preSECi			% Reset multicolumn logic
 
-  \def\dirSIZE{\small}
-  \def\COLUMNS{3}
-  \scriptsize
+  %%% You can change here the configuration of fonts, squeezes and columns;
+  %%% Just copy the needed lines from top of file; or uncomment and edit these:
+  % \def\SectionFont{\bfseries\normalsize}
+  % \def\SubSectionFont{\bfseries\scriptsize}
+  % \def\RecordFont{\tinyish}
+  % \def\COLUMNS{3}			% Choose suitable number of columns
 
-  {
-    \baselineskip 0.8\baselineskip	% Less space before continuation lines
-    \PREauthorSKIP 1.2pt\relax		% Pre- and post- level-2 heading
-    \POSTauthorSKIP 0.6pt\relax
-    % Make this more negative for less skip between non-continuation lines
-    \parskip=-0.7pt plus 1pt\relax
-    \input{another_list}
+  %%% This is very squeezed; increase by 0.8ex to loosen:
+  % \def\preSectionSKIP{0.3ex plus 0.6ex minus 0.3ex}
+  % \def\postSectionSKIP{0.05ex plus 0.6ex minus 0.15ex}
+
+  \RecordFont		\RecordSqueeze	% enable now
+
+  %\def\squeezeContunuationLines{% typesets continuation lines very squeezed
+  % % ARGS = BETWEEN LINES / +ITS INC / BASELINE-SKIP-in-height-of(0) / PARSKIP
+  %   \contunuationLineSkip{-0.2ex}{plus 0.24ex}{1.3}{-0.08ex plus 0.44ex}}
+
+  { \def\preSubSectionSKIP{1.2pt}	% Pre- and post- level-2 heading
+    \def\postSubSectionSKIP{0.6pt}
+    \topRULES
+
+EOQ
+    \\input{$long_list}%
+EOI
     \end{multicols}
+
+    \bottomRULES
+EOP
+
+$optional_cont .= <<'EOP' if $opt{T};
+    \begin{center} \unskip \addvspace{3.6pt}%
+    {\bf \small \totalDuration\today}
+    \end{center}
+
+EOP
+
+$optional_cont .= <<'EOP';
+    \vfill\vfil
+    \reportLyricsSyntaxEtc
   }
 \fi
 
 \end{document}
 EOP
 
-print $out_envelop_cdcover <<'EOP' if $opt{B} and defined $out_envelop_cdcover;
+print $out_cdcover_std <<'EOP' if $opt{B} and defined $out_cdcover_std;
 %\end{multicols}
-\reportLyricsSyntax
+\reportLyricsSyntaxEtc
 \end{bookletsheets}
 %\end{bookletsheetsTwo}
 %\end{singlesheet}
@@ -677,20 +871,21 @@ EOP
 print $out_envelop_backcover <<'EOP' if defined $out_envelop_backcover;
 \end{multicols}
 
-\addvspace{0.5ex}
-\hrule
+\bottomRULES
+
 EOP
 
 print $out_envelop_backcover <<'EOP' if $opt{T} and defined $out_envelop_backcover;
 %\addvspace{-1.5ex}
-\begin{center}
+\begin{center}\unskip\addvspace{3.6pt}%
 {\bf \small \totalDuration\today}
 \end{center}
 
 EOP
 
 print $out_envelop_backcover <<'EOP' if defined $out_envelop_backcover;
-\reportLyricsSyntax
+\vfill\vfil
+\reportLyricsSyntaxEtc
 
 %\vfill\vfil
 
@@ -702,79 +897,94 @@ print $out_envelop_backcover <<'EOP' if defined $out_envelop_backcover;
 \end{document}
 EOP
 
-print $out_envelop_text <<'EOP', $optional_cont if defined $out_envelop_text;
+for my $out (grep defined, $out_normal_text, $out_cdcover_our) {
+  print $out <<'EOP';
 \end{multicols}
 
+\bottomRULES
+
 EOP
-
-print $out_envelop_12cm <<'EOP', $optional_cont if defined $out_envelop_12cm;
-\end{multicols}
-
-\addvspace{0.5ex}
-\hrule height0.8pt\relax
-\vskip 1.2pt
-\hrule height1.7pt\relax
-EOP
-
-print $out_envelop_12cm <<'EOP', $optional_cont if $opt{T} and defined $out_envelop_12cm;
+  print $out <<'EOP' if $opt{T};
 %\addvspace{-1.5ex}
-\begin{center}
+\begin{center}\unskip\addvspace{3.6pt}%
 {\bf \small \totalDuration\today}
 \end{center}
 EOP
 
-print $out_envelop_12cm <<'EOP', $optional_cont if defined $out_envelop_12cm;
+  print $out <<'EOP', $optional_cont;
 
-\reportLyricsSyntax
+\vfill\vfil
+\reportLyricsSyntaxEtc
 
 EOP
-
-if ($opt{B}) {			# Otherwise cdcover is STDOUT...
-  (close $_ or warn "Error closing wrapper for write: $!"), undef $_
-    for grep defined, $out_envelop_backcover,
-      $out_envelop_cdcover, $out_envelop_text, $out_envelop_12cm;
 }
 
 my $d = Cwd::cwd;
-for (@ARGV) {
-  $had_subdir = 0;
-  warn("Not a directory: `$_'"), next unless -d;
-  chdir $_ or die "Can't chdir `$_'";
-  (my $name = $_) =~ s,.*[/\\](?!$),,;
-  $name =~ s/_/ /g;
-  $print_dir = $name;
-  @level = (0);
-  @performers = ($print_dir);
-  @comments = (undef);
-#  print <<EOP;
-#\\preDir $name\\postDir
-#EOP
-  $author = '';
-  $TIT1 = '';
-  undef $previous;
-  File::Find::find { wanted => \&print_mp3, no_chdir => 1,
-		     postprocess => \&unwind_dir,
-		     preprocess => \&preprocess_and_sort_with_aligned_numbers },
-		'.';
-  print_this_mp3({});	# Flush the postponed data
-  chdir $d or die;
+
+sub process_files () {
+  for (@ARGV) {
+    $had_subdir = 0;
+    warn("Not a directory: `$_'"), next unless -d;
+    chdir $_ or die "Can't chdir `$_'";
+    (my $name = $_) =~ s,.*[/\\](?!$),,;
+    $name =~ s/_/ /g;
+    $print_dir = $name;
+    @level = (0);
+    @performers = ($print_dir);
+    @comments = (undef);
+    #  print <<EOP;
+    #\\preSection $name\\postSection
+    #EOP
+    $author = '';
+    $TIT1 = '';
+    undef $previous;
+    File::Find::find { wanted => \&print_mp3, no_chdir => 1,
+			 postprocess => \&unwind_dir,
+			   preprocess => \&preprocess_and_sort_with_aligned_numbers },
+			     '.';
+    print_this_mp3({});		# Flush the postponed data
+    chdir $d or die;
+  }
 }
+
+@ARGV = '.' unless @ARGV;
+process_files;
 
 if ($opt{T}) {
-  $total_sec = to_duration $total_sec;
-  print "\\gdef\\totalDuration{Total time: $total_sec. }%\n";
+  my $tot = to_duration $total_sec;
+  print "\\gdef\\totalDuration{Total time: $tot. }%\n";
 }
 
-
-print $out_envelop_cdcover <<'EOP' if defined $out_envelop_cdcover;
+print $out_cdcover_std <<'EOP' if defined $out_cdcover_std;
 
 %\end{multicols}
-\reportLyricsSyntax
+\reportLyricsSyntaxEtc
 \end{bookletsheets}
 %\end{bookletsheetsTwo}
 %\end{singlesheet}
 \end{document}
 EOP
+
+if ($opt{B}) {			# Otherwise cdcover is STDOUT...
+  (close $_ or warn "Error closing wrapper for write: $!"), undef $_
+    for grep defined, $out_envelop_backcover, $out_common, $out_titles,
+      $out_cdcover_std, $out_normal_text, $out_cdcover_our, $out_list;
+}
+
+if ($opt{B} and $both) {	# 2nd pass
+  set_plan 'long';
+  delete $opt{c} unless defined $ini_c;
+  open LIST, "> $opt{B}_list_long.tex"
+    or die "open `$opt{B}_list_long.tex' for write: $!";
+  select LIST;
+  $out_list = \*LIST;
+  if ($enc{o}) {
+    eval { binmode $out_list, ":encoding($enc{o})"} or warn $@;
+  }
+
+  undef $previousTop;
+  process_files;
+}
 
 =head1 NAME
 
@@ -797,17 +1007,36 @@ typeset_audio_dir - produce B<TeX> listing of directories with audio files.
 
   # Use artist as toplevel heading, album as the 2nd level; use track numbers;
   # name is based on title for any depth in directory hierarchy;
-  # likewise for generation of 2nd level heading.  Mark pieces with lyrics
-  typeset_audio_dir -@ -ynTL -1 "@a" -2 "@l" -t 1000 -a 1000 -B All .
+  # likewise for generation of 2nd level heading.  Mark audios with lyrics
+  typeset_audio_dir -ynTL -P long -B All
 
   # Likewise, but the name is based on the album; ignore comments
-  typeset_audio_dir    -yTn -c -1 "" -2 "" -t -1e100 -a -1e100 -B All_short .
+  typeset_audio_dir -yTn -P short -B All_short
+
+  # Likewise, but produce both long and short listings.  The short one serves
+  # as a table-of-contents for the long one
+  typeset_audio_dir -ynTL -P short,long -B All
 
 =head1 DESCRIPTION
 
-Scans directory (or directories), using L<MP3::Tag> to obtain
-information about audio files (currently only MP3s).  Produces (one or
-more) B<TeX> files with the listing.
+Scans directory (or directories) given on the command line, using
+L<MP3::Tag> to obtain information about audio files (currently only
+MP3s).  Produces (one or more, depending on B<-B> option) B<TeX> files
+with commands to typeset human-readable listings.  Non-directories on
+the command line are ignored.
+
+With B<-B>, the file F<*_list.tex> contains all the data about audio
+files (when B<-P> with both C<short,long> is given, another similar file
+F<*_list_long.tex> is also written); the file F<*_titles.tex> contains
+a 0th approximation to the possible "title" of the collection (one
+based on B<-N> option and a short summary of toplevel directories).
+The file F<*_common.tex> contains macros common for the following
+files.  The remaining files define different environments to typeset
+the listing (including two TeX files with "content" as needed): a
+"normal" listing (for A4/Letter, F<*_text.tex>), two flavors of a
+"compressed" listing (for jewel case insert, F<*_cdbooklet.tex> and
+F<*_cdcover.tex>), and a back insert for the jewel case
+(F<*_backcover.tex>).
 
 The intent is to support many different layouts of directories with
 audio files with as little tinkering with command-line options as
@@ -828,15 +1057,18 @@ descriptors of the audio files during scan.
 
 gives basename of the output file.  Without this option the script
 will output to STDOUT.  With this option, script separates the layout
-from content, and produces 5 B<TeX> files:
+from content, and produces 6 B<TeX> files:
 
   basename_text.tex
   basename_cdcover.tex
   basename_cdbooklet.tex
   basename_backcover.tex
   basename_list.tex
+  basename_titles.tex
+  basename_common.tex
 
-The last file contains the information about audio files encountered.
+The last file contains the common macros needed for typesetting.
+The previous two files contain the information about audio files encountered.
 The others files contain frameworks to typeset this information.
 
 The first four files are supposed to be human-editable; they will not
@@ -844,6 +1076,23 @@ be overwritten by a following rerun with the same basename given to
 the script.  By editing these files, one can choose between several
 encodings, languages, multicolumn output, font size, interline
 spacing, margins, page size etc.
+
+The C<*_titles.tex> file is of mixed nature: it reflects the content of
+audio files, I<and> is supposed to be human-editable.  It will be
+overwritten unless it is Read-Only; so if you hand-edit it, make it Read-Only.
+Similar overwrite logic is applied to C<*_common.tex> file too.
+
+=item B<-P> C<plan>
+
+a shortcut to setting hairy options; currently, two values of C<plan> are
+supported:
+
+  short   =>    -1 ""  -2 ""   -t -1e100 -a -1e100 -c
+  long    =>    -1 ""  -2 "@l" -t  1e100 -a  1e100
+
+for generation of short/long listings.  In the short listing, records
+correspond to the album names.  In the long listing, records correspond
+to individual files, and album names serve as second-level headings.
 
 =item B<-y>
 
@@ -868,8 +1117,9 @@ may contain the format to interpolate for typesetting.
 
 Toplevel header format; is interpolate()d by L<MP3::Tag> based on
 the content of the first audio file encountered during scan of this
-toplevel directory.  The default is based on the name of the directory
-(with some translation: underscore is converted to space).
+toplevel directory.  The empty value is the default; in this case the
+header is based on the name of the directory (with some normalization:
+underscore is converted to space).
 
 =item B<-2>
 
@@ -896,7 +1146,8 @@ new heading.
 
 B<NOTE:> maybe this default of 2 is not very intuitive.  It is
 recommended to explicitely set this option to the value you feel
-appropriate (C<1e100> would play role of infinity).
+appropriate (C<1e100> would play role of infinity - so any change will
+generate a new second-level heading).
 
 =item B<-t>
 
@@ -924,6 +1175,26 @@ Use 0 instead of an encoding to do byte-oriented read/write.
 
 What to use as "comment" for a record (a part which is typeset differently).
 If not given, the ID3v2 frame C<TXXX[add-to:file-by-person,l,t,n]> is used.
+
+If the content of this field is contained at end of the title, nothing
+is added, just this part is typeset differently.
+
+=item B<-L>
+
+Mark files with embedded (un)syncronized lyrics and pictures.  Put the
+explanation of used symbols at the end of the listing.
+
+=item B<-N COLLECTION_NAME>
+
+(defaults to "COLLECTION") the name of the collection to insert into
+the file F<*_title.tex>.  The interaction with encoding may be less than
+intuitive; you may want to check/edit this file for corrections.
+
+=item B<-F FONT_ENCODING_SYMBOL>
+
+(defaults to C<T2A>): the name of C<LaTeX> font encoding.  If your
+installation is broken and C<T2A> is not available, you may try C<T1>
+or C<OT1>.  See L<"PROBLEMS when TYPESETTING">.
 
 =back
 
@@ -958,9 +1229,9 @@ we assume PDF target):
 
   latex document.tex && dvips document.dvi && ps2pdf document
 
-(a lot of temporary files are going to be generated too).  Some of the
-files (e.g., F<..._cdcover.tex>) assume work better with landscape
-orientation; one needs
+(a lot of temporary files are going to be generated too; you can break
+this into multiple commands on C<&&>).  Some of the files (e.g.,
+F<..._cdcover.tex>) fit better with landscape orientation; one needs
 
   latex document.tex && dvips -t landscape document.dvi && ps2pdf document
 
@@ -969,11 +1240,139 @@ rearrange pages for booklet 2up 2-pages-per-side printing:
 
   latex document.tex
     && dvips -t landscape -f < document.dvi | psbook | pstops "2:0(0,-6cm)+1(0,6cm)" > document.ps
-    && ps2pdf document
+    && ps2pdf -dAutoRotatePages=/None document
 
-(more details on running dvips is put in the beginning of this TeX file).
+(all on one line, or give 3 separate commands, breaking on C<&&>; more
+details on running dvips is put in the beginning of the TeX file).  If
+you can easily print a F<.ps> file, you can omit the last step.  (The
+option C<-dAutoRotatePages=/None> interferes with viewing; one may
+omit it I<unless> one does "extra flipping of even pages", as below.)
+
+Note that this assumes that when you send files to printer you request
+duplexing with "binding on the short side of paper".  If you printer
+can survive manual duplexing, do as usual: print first the even pages in
+opposite order, reload paper, then print odd pages (you need to understand
+in which orientation you must put paper back when reloading; there are
+4 variants, and only one is correct ;-).  For "real" duplex printers,
+see below.
+
+=head1 PROBLEMS when TYPESETTING
+
+=over 4
+
+=item incomplete installations
+
+  ! Font T2A/cmr/m/n/10.95=larm1095 at 10.95pt not loadable:
+    Metric (TFM) file not found.
+
+For best multilanguage coverage I could find, by default the generated
+LaTeX files use C<T2A>-encoded-fonts with extra Latin characters
+provided by C<textcomp>.  Apparently, some C<TeX> installations omit
+C<T2A> encoding tables.  You may want to change C<T2A> to, e.g., C<T1> by using option C<-F T1>.
+
+=item In a booklet, page 1 is at end, the rest is a mess
+
+The C<landscape> option of C<geometry> package should rotate the page
+90 degrees.  Depending on the way it is configured, the direction of
+rotation varies.  If F<.pdf> file obtained with
+C<-dAutoRotatePages=/None> option has top of page on the left, you may
+need to invert the direction of shifting: instead of
+C<2:0(0,-6cm)+1(0,6cm)> one should use C<2:0(0,6cm)+1(0,-6cm)>.
+
+=item Duplexing with "bind on the long side of paper"
+
+By default, most duplex printers are configured to "bind on the long
+side of paper"; so to avoid manual setup of binding options, you may
+want to flip even pages in the generated file.  To do this, add an
+extra F<ps2ps> step at the end of pipeline, e.g.:
+
+  ... psbook | pstops "2:0(0,-6cm)+1(0,6cm)" | pstops "2:0,1U(1w,1h)" > document.ps
+
+=item A4-sized paper vs. Letter-sized paper
+
+Some TeX/PS installations do not have correctly set-up site
+configuration files, so do not know what is the usual paper size on
+your printer.  Fortunately, all steps of the typesetting pipeline
+allow a manual reconfiguration.  Unfortunately, command options for
+the required reconfigurations are subtly different for different
+steps.
+
+For example, if your TeX/PS-utils think that your paper size is
+C<letter>, while what you actually print to is C<a4>, you need to do
+the following (depending on which configuration files are broken, you
+might be able to omit some modifications):
+
+=over 4
+
+=item 1.
+
+Add C<a4paper> to the C<\usepackage[...,...]{geometry}> options (the
+comma-separated list in brackets) in TeX files which use C<geometry>.
+
+=item 2.
+
+Add C<-t a4> as a C<dvips> options.
+
+=item 3.
+
+Add C<-pa4> as a C<pstops> option.  (If it breaks rotation, omit it, sigh!)
+
+=item 4.
+
+Add C<-sPAPERSIZE=a4> as a C<ps2pdf> option.
+
+=back
+
+Likewise, quite often one needs to add C<-pletter> to C<ps2ps> commandlines
+for correct printing to letter-size paper.  You can check the resulting PDF
+file in a viewer: the status line should show the correct paper size
+(e.g., 8.5in x 11in is "Letter"), even pages should be flipped (for binding
+"on the long side"), and the wireframes on different pages should be
+positioned exactly at same positions (for visual verification, choose
+"fit-to-page" scaling, and quickly switch pages back-and-forth by keyboard
+or by "Next page" button).
+
+=item Warnings from dvips
+
+Note also that if your C<TeX/dvips> installation is I<completely correct>,
+you can remove C<-t landscape> from your C<dvips> command line; not removing
+it would produce a warning C<both both landscape and papersize specified:
+ignoring landscape>.
+
+=item Systematic duplexing offset
+
+Some printers can't reliably match positions on the front and back side
+when printing; there is little one can do with it.  However, if your
+printer adds some I<consistent> misplacement of front and back sides,
+one can put workarounds for it.
+
+For example, when "binding on the short side", the common error is that
+(in landscape orientation) backside is offset horizontally w.r.t. frontside.
+For example, if offset is 3.4mm to the left, one can shift the image on
+the page by half of this, 0.17cm to the left: replace C<"2:0(0,-6cm)+1(0,6cm)">
+by "2:0(0,-6.17cm)+1(0,5.83cm)".
+
+With "binding on the long side", the typical error is
+vertical offset.  To work around, one needs to shift vertically (again,
+by half the amount) I<after> flipping even pages.  To shift 0.17cm up,
+add an extra step C<pstops "(0.17cm,0)"> to the pipeline after the
+C<"2:0,1U(1w,1h)"> step (untested).
+
+=back
 
 =head1 HINTS
+
+The default font sizes and density of type is chosen to optimize printing
+of a DL-DVD collection of short high quality audio (of song-like duration:
+about 100 subheadings, and 2000 audio files).  You may improve the visual
+quality if you tune the typesetting to your particular needs.
+
+The most commonly changed settings are on top of the generated files.
+These are fonts and degrees of vertical squeeze of paragraphs for the
+principal title, titles of sections (1st level) and subsections (2nd
+level), and of actual records emited for each audio file, as well as
+the number of columns.  Slightly further in the file are settings for
+gaps to left around section headings, and for fine-tuning of squeezing.
 
 Do not forget that if you can't describe a complicated layout by
 command-line options, you still have a possibility to run this script
@@ -982,33 +1381,45 @@ other options suitable for this subdirectory).  Then you can use
 B<LaTeX> C<\input> directives to include the generated F<basename_list.tex>
 files into the toplevel C<LaTeX> file.
 
-You can also redefine C<\preDir * \posDir> to do nothing, and put the
+You can also redefine C<\preSection * \postSection> to do nothing, and put the
 necessary code to generate the headers into the top-level file.
 
-Modify the formatting macros to suit your needs.
+Modify the formatting macros to suit your needs.  (Of more tricky
+stuff, mention C<\squeezeContunuationLines> and C<\parskip>, which
+regulate the density of lines - without changing the line font; note
+that setting C<\parskip> is a part of the action of
+C<\squeezeContunuationLines>.)
 
-One can combine two (or more) lists (e.g., with the short style, and
-the long style) into one output file; the generated files
+One can combine two (or more) lists (e.g., one with the short style, and
+one with the long style) into one output file; the generated files
 F<..._cdbooklet.tex> and F<..._text.tex> already have a necessary
-template (disabled) at the end.  For example, with two lists created in
+template (disabled) at the end.  (Moreover, with B<-P> C<short,long>, this
+is done automatically.
+
+For example, with two lists created in
 L<"SYNOPSIS">, F<All_list.tex>, and F<All_short_list.tex>, find
 C<\iffalse> near the end of F<All_short_cdbooklet.tex> and change it
 to C<\iftrue>; then change the name in the directive
 
     \input{another_list}
 
-to F<All_long_list>
+to F<All_list>
 
 This will make the "short" cdbooklet become a kind of "table of
 contents" for the combined "short+long" cdbooklet.  (Of course, one
-can change the values of macros C<\dirSIZE>, C<\COLUMNS>, size of
-skips and of type [as C<\scriptsize> above] to suit your needs - the
-point is that they should not be necessarily the same for the second list.)
+can change the values of macros C<\SectionFont> etc, C<\COLUMNS>, type of
+squeeze to suit your needs - the point is that they should not be necessarily
+the same for the second list.)
 
 =head1 WORKFLOW
 
-Put all the "toplevel" directories as subdirectories of the current directory,
-and put the heading 
+The module is quite flexible; here is one of the possible workflows (suitable
+if all you need is B<-P> <short> and B<-P> <long>:
+
+Put all the "toplevel" directories as subdirectories of the current directory
+(well, this is not really necessary!), and put the heading to use for each
+directory into a file F<.top_heading>.  You may need to specify the encoding
+used in this file into the options (do similar to C<-e h:cp1252>).
 
 =cut
 

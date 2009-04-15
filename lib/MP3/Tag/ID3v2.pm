@@ -15,7 +15,7 @@ use vars qw /%format %long_names %res_inp @supported_majors %v2names_to_v3
 	     %back_splt %embedded_Descr
 	    /;
 
-$VERSION="0.9714";
+$VERSION="1.00";
 @ISA = 'MP3::Tag::__hasparent';
 
 my $trustencoding = $ENV{MP3TAG_DECODE_UNICODE};
@@ -553,6 +553,11 @@ sub set_frame_option {
     return $self->{frames}->{$fname}->{flags};
 }
 
+sub sort_with_apic {
+  my ($a_APIC, $b_APIC) = map scalar(/^APIC/), $a, $b;
+  $a_APIC cmp $b_APIC or $a cmp $b;
+}
+
 # build_tag()
 # create a string with the complete tag data
 sub build_tag {
@@ -561,7 +566,7 @@ sub build_tag {
 
     # in which order should the frames be sorted?
     # with a simple sort the order of frames of one type is the order of adding them
-    my @frames=sort keys %{$self->{frames}};
+    my @frames = sort sort_with_apic keys %{$self->{frames}};
 
     for my $frameid (@frames) {
   	    my $frame = $self->{frames}->{$frameid};

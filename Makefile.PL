@@ -25,14 +25,14 @@ EOW
 # the contents of the Makefile that is written.
 WriteMakefile(
     'NAME'		=> 'MP3::Tag',
-    'VERSION_FROM'	=> 'Tag.pm', # finds $VERSION
+    'VERSION_FROM'	=> 'lib/MP3/Tag.pm', # finds $VERSION
     'EXE_FILES'		=> [ map "examples/$_", @programs_to_install ],
-    'PMLIBDIRS'         => ['Tag', 'MP3::Tag'],
+#    'PMLIBDIRS'         => ['Tag', 'MP3::Tag'],
     'AUTHOR'            => '"Thomas Geffert" <thg@users.sourceforge.net>, "Ilya Zakharevich" ilyaz@cpan.org',
     'PREREQ_PM'         => {
 				# Compress::Zlib => 0,
 			   },
-    'PL_FILES'          => {'data_pod.PL'=>'ID3v2-Data.pod'},
+    'PL_FILES'          => {'data_pod.PL'=>'lib/MP3/ID3v2-Data.pod'},
  #   'clean'             => {FILES => 'ID3v2-Data.pod'},	# is included!
 );
 
@@ -40,13 +40,13 @@ WriteMakefile(
 package MY;
 sub manifypods {
     my $self = shift;
-    $self->{MAN3PODS}->{'ID3v2-Data.pod'} = '$(INST_MAN3DIR)/MP3::Tag::ID3v2-Data.$(MAN3EXT)';
+    $self->{MAN3PODS}->{'lib/MP3/Tag/ID3v2-Data.pod'} = '$(INST_MAN3DIR)/MP3::Tag::ID3v2-Data.$(MAN3EXT)';
     $self->SUPER::manifypods(@_);
 }
 
 sub postamble {	# Not good enough: is done after .pod is moved to INST_LIB...
   '
-ID3v2-Data.pod :: Tag/ID3v2.pm # pm_to_blib
+lib/MP3/Tag/ID3v2-Data.pod :: lib/MP3/Tag/ID3v2.pm # pm_to_blib
 
 ';
 }

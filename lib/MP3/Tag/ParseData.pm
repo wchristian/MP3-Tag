@@ -3,7 +3,7 @@ package MP3::Tag::ParseData;
 use strict;
 use vars qw /$VERSION @ISA/;
 
-$VERSION="0.9710";
+$VERSION="1.00";
 @ISA = 'MP3::Tag::__hasparent';
 
 =pod

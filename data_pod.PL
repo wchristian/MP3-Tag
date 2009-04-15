@@ -5,7 +5,7 @@
 use MP3::Tag;
 use MP3::Tag::ID3v2;
 
-$filename=shift || "./Tag/ID3v2-Data.pod";
+$filename=shift || "./lib/MP3/Tag/ID3v2-Data.pod";
 
 open(POD, ">$filename");
 $std = select(POD);

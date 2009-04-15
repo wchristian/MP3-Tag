@@ -1,3 +1,52 @@
+Release Name: 1.00
+====================
+
+Bump all the version numbers to 1.00 (except Normalize::Text::Music_Fields).
+
+Move code to a ./lib subdirectory.  (Allows auto-install of transliterate_cp1251.)
+
+Music_Normalize_Fields.pm: renamed to Normalize::Text::Music_Fields.pm
+  Now check environment variable MUSIC_FIELDS_PATH and/or ~/.music_fields/*.
+  name_for_field_normalization method is used to choose "composer name".
+
+CDDB_File.pm: minor changes to the docs.
+
+Cue.pm: new sub-module.
+
+Tag.pm: allow access to Cue, and customization of the corresponding encoding.
+  Allow conditional interpolation on user variables (check emptiness) %{U1:\n}.
+  New configuration variable and method `name_for_field_normalization'.
+
+typeset_audio_dir: Major simplification of user interface, better docs.
+  Can generate short+long-type listings itself (two-pass so far...).
+  More consistent ornaments in the generated files.
+  Auto-generate the file *_titles.tex (used as the title of the listing).
+  Move common code to file *_common.tex.
+  New options -N, -P, -F.
+  Document option -L.
+  Directory list defaults to ".".
+  Indicator of presence of APIC frames.
+  Lyrics symbols explanation emitted correctly.
+  Allow duplication of comment-like info and a part of the main record title
+    (emphasizes this part of the title).
+  Document known possible problems during typesetting.
+
+mp3info2:
+  Since Normalize::Text::Music_Fields is always loadable now, one
+    uses a different trigger sequence to load this module (environment
+    variable and a directory ~/.music_fields are checked).
+  With -e N, N in 1..3, do not translate the non-option ARGV
+    (could conflict with interation with filesystems).
+  New bit 0x4 of -e N used to influence translation of non-option ARGV.
+  When @ARGV is re-encoded: translate back to 8-bit whatever is possible.
+
+ID3v2.pm: when ordering frames in generated tags, sort APIC frames
+  at the end (since the simplest reason for unsync-related bugs in other
+  programs is misparse of APIC frames, and it is the *consequent* frames
+  which are busted, no non-APIC frames would be affected.  (This is
+  applicable in the case when other frames contain Latin-1 info, so
+  the chance of unsync-sequences there is low...) 
+
 Release Name: 0.9714
 ====================
 

@@ -5,8 +5,9 @@ use lib "$FindBin::Bin";
 
 use MP3::Tag 0.9714;
 use Getopt::Std 'getopts';
+use Config;
 
-$VERSION = '1.07';
+$VERSION = '1.08';
 use strict;
 
 $Getopt::Std::STANDARD_HELP_VERSION = 1;
@@ -36,22 +37,39 @@ sub massage_o {
 }
 massage_o();
 
+sub my_decode($$) {	# If file names are utf-ized, glob fails???
+  # De-utf-ize if possible...
+  join '', map chr ord, split //, &Encode::decode;
+}
+
+sub my_decode_deep($$);
+sub my_decode_deep($$) {
+  my($e,$t) = (shift, shift);
+  if (ref $t eq 'ARRAY') {
+    return [map my_decode_deep($e, $_), @$t];
+  } elsif (ref $t) {
+    die "panic: reference of type `$t' unexpected"
+  }
+  # De-utf-ize if possible...
+  join '', map chr ord, split //, Encode::decode($e, $t);
+}
+
 # if ($opt{e} and exists $opt{p} ? 0 == length $opt{p} : 1) {
 if ($opt{e}) {
   my $skip;
-  if ($opt{e} =~ /^[123]$/) {
+  if ($opt{e} =~ /^[1-7]$/) {
     require Encode;
     my $locale = $ENV{LC_CTYPE} || $ENV{LC_ALL} || $ENV{LANG};
     if ($^O eq 'os2' and not eval {Encode::resolve_alias($locale)} ) {
       require OS2::Process;
       $locale = 'cp' . OS2::Process::out_codepage();
     }
-    if ($opt{e} >= 2) {		# Reinterpret ARGs
-      $skip = ($opt{e} == 2);
-      @ARGV = map Encode::decode($locale, $_), @oARGV;
-      %opt = ();
-      massage_o();
-    }
+    $skip = !($opt{e} & 1);
+    # Reinterpret @ARGV
+    @ARGV = map my_decode($locale, $_), @ARGV if $opt{e} & 4;
+    # Reinterpret opts
+    @opt{keys %opt} = map my_decode_deep($locale, $_), values %opt
+      if $opt{e} & 2;
     $opt{e} = $locale;
   } elsif ($opt{e} eq 'binary') {
     binmode STDOUT;
@@ -158,17 +176,24 @@ for my $C (@{ $opt{C} || [] }) {
   }
 }
 
-unless ($opt{N}) {
+unless ($opt{N}) {{
+  my $cfg = $ENV{MP3TAG_NORMALIZE_FIELDS};
+  last if defined $cfg and not $cfg;
+  last unless defined $cfg or $ENV{HOME} and -d "$ENV{HOME}/.music_fields";
   no strict 'refs';
-  eval 'require Music_Normalize_Fields';
+  eval 'require Normalize::Text::Music_Fields';
   for my $elt ( qw( title track artist album comment year genre
 		    title_track artist_collection person ) ) {
-    MP3::Tag->config("translate_$elt", \&{"Music_Normalize_Fields::normalize_$elt"})
-	if defined &{"Music_Normalize_Fields::normalize_$elt"};
+    MP3::Tag->config("translate_$elt", \&{"Normalize::Text::Music_Fields::normalize_$elt"})
+	if defined &{"Normalize::Text::Music_Fields::normalize_$elt"};
   }
-  MP3::Tag->config("short_person", \&Music_Normalize_Fields::short_person)
-      if defined &Music_Normalize_Fields::short_person;
-}
+  MP3::Tag->config("short_person", \&Normalize::Text::Music_Fields::short_person)
+      if defined &Normalize::Text::Music_Fields::short_person;
+  $cfg = '' if not defined $cfg or $cfg =~ /^[01]$/;
+  my @d = split /$Config{path_sep}/, $cfg;
+  Normalize::Text::Music_Fields::set_path(@d)
+   if @d and defined &Normalize::Text::Music_Fields::set_path;
+}}
 
 my @parse_data;
 die 'Option -P requires ParseData in autoinfo'
@@ -503,10 +528,11 @@ newline; governed by the value of C<-E> option); see
 L<MP3::Tag/"interpolate"> for details of the format of sprintf()-like
 escapes.  If no option C<-p> is given, message in default format will
 be emitted.  The value of option C<-e> is the encoding used for the
-output; if the value is 1, system-specific encoding is guessed; if the
-value is 2 or 3, then, command line arguments are assumed to be in the
-guessed encoding; for value 2 the encoding of C<-p> output is not set; use
-the value C<binary> to do binary output.
+output; if the value is a number, system-specific encoding is guessed
+(and used for the output if bit 0x1 is set); if bit 0x2 is set, then,
+command line options are assumed to be in the guessed encoding; if bit
+0x4 is set, then, command line arguments are assumed to be in the
+guessed encoding.  Use the value C<binary> to do binary output.
 
 With option C<-D> (dry run) no update is performed, no matter what the
 other options are.  With this option, no parsing of tags is performed unless
@@ -624,19 +650,28 @@ If option C<-N> is given, all the "smarts" are disabled - no
 normalization of fields happens, and (by default) no attempt to deduce the
 values of fields from non-ID3 information is done.  This option is
 (currently) equivalent to having C<-C autoinfo=ParseData,ID3v2,ID3v1>
-as the first directive, to having no F<Music_Normalize_Fields.pm>
+as the first directive, to having no F<Normalize::Text::Music_Fields.pm>
 present on @INC path, and not calling autofill() method.
 
 =head1 Normalization of fields
 
-If a module C<Music_Normalize_Fields> is available (and the option
-C<-N> is not given), it is loaded, and L<MP3::Tag> is instructed (via
-corresponding configuration settings) to use C<normalize_artist>
-(etc.) methods defined by this module.  These methods may normalize
-certain tag data.  The version shipped (see the F<examples> directory
-of the module distribution) defines methods for "normalization" of
-personal names, and titles (based on the composer).  This normalization is
-driven through user-editable configuration tables.
+(The loading of normalization module and all subsequent operations may be
+disabled by the option C<-N>, or by setting the environment variable
+C<MP3TAG_NORMALIZE_FIELDS> to be FALSE.  If not prohibited,
+the module is attempted to be loaded if directory F<~/.music_fields>
+is present, or C<MP3TAG_NORMALIZE_FIELDS> is set and TRUE.)
+
+If loading of the module C<Normalize::Text::Music_Fields> is successful,
+the following is applicable:
+
+If the value of C<MP3TAG_NORMALIZE_FIELDS> is defined and not 1, this value
+is broken into directories as a PATH, and load path of
+C<Normalize::Text::Music_Fields> is set to be this list of directories.
+Then L<MP3::Tag> is instructed (via corresponding configuration settings) to
+use C<normalize_artist> (etc.) methods defined by this module.  These methods
+may normalize certain tag data.  The current version defines methods for
+"normalization" of personal names, and titles (based on the composer).  This
+normalization is driven through user-editable configuration tables.
 
 In addition to automatical normalization of MP3 tag data, one can use
 "fake MP3 files" to manually access some features of this module.
@@ -835,7 +870,7 @@ explicit asignment, with arguments similar to
 
 (this value of C<-E> requests C<%>-interpolation of the option C<-a>
 in addition to the default C<\>-interpolation of C<-p>, and
-C<%>-interpolation of C<-F> and C<-p>; one can shortcut it with C<-E +a>).
+C<%>-interpolation of C<-F> and C<-p>; one can shortcut it with C<-E +/i:a>).
 
 To give more examples,
 
