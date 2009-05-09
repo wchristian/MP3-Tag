@@ -1,6 +1,6 @@
 #!/usr/bin/perl -w
 
-$VERSION = '1.00';
+$VERSION = '1.10';
 
 use strict;
 use MP3::Tag '0.9711';		# %{mA}
@@ -179,6 +179,7 @@ sub preprocess_and_sort_with_aligned_numbers {
 	eval {
 	  require Encode;
           $c = Encode::decode($enc{h}, $c);
+	  1;
 	} or warn $@;
       }
       $c =~ s/^\s+//;
@@ -456,7 +457,7 @@ my $common = <<'EOP';
 % at the left ends. \null is needed to create a break place between two
 % pieces of glue.
 % If break happens, \hskip disappears, and we get two \hfil's;
-% If it does not happen, we get 0.75em plus 1fil plus 1fill.
+% If it does not happen, we get 0.65em plus 1fil plus 1fill.
 % \penalty 80 helps squeezing the line a little bit if year fits into
 % the last line, but only tightly (or if an extra hyphenation is required?).
 
@@ -467,7 +468,7 @@ my $common = <<'EOP';
 % \postttile...
 
 \def\addOnRight#1{%
-  \unskip\nobreak\hfil\penalty 80\hskip0.75em\null\nobreak\hfill
+  \unskip\nobreak\hfil\penalty 80\hskip0.65em\null\nobreak\hfill
   \sbox 0{#1}\ifdim \wd 0 > \linewidth #1\else    \box 0\fi
   \finalhyphendemerits=0\relax
 }
@@ -503,7 +504,8 @@ my $common = <<'EOP';
 
 % Make this more negative for smaller skip between records
 %  (but larger than in squeezeContunuationLines)
-\parskip=-0.2pt plus 1.1pt\relax	% After a paragraph (= one record)
+%	[Now this is set inside \contunuationLineSkip]
+% \parskip=-0.2pt plus 1.1pt\relax	% After a paragraph (= one record)
 
 \def\topRULES{\vskip 1.2pt\hrule height1.7pt\vskip 1.2pt%
   \hrule height0.8pt\relax\vskip 2.4pt\relax}
@@ -574,7 +576,7 @@ EOP
 
 my $title_rules_on = <<EOP;
 \\TitleFont		\\TitleSqueeze
-%%% Uncomment this for fine modifications of the top separator
+%%% Uncomment this for fine-tune of the 1st page top separator
 %    \\hrule height0pt\\vskip -1.2mm\\vskip 0pt\\hrule height0pt
 \\begin{center} \\unskip
 \\input{${base}_titles}%
@@ -1215,6 +1217,14 @@ If empty, indicates that when the depth of files modifies the output,
 it is calculated w.r.t. the subdirectories of the directory of this
 file (ouph!).  If contains a number, it is added to this depth.
 
+B<Example>: suppose your section heading is based on directory names.
+Suppose the directory tree to process contains a directory F<Mixed/2009>.
+If you want names of subdirectories of this directory to become
+section headings, make file F<Mixed/2009/.top_heading> which contains C<0>.
+If the same holds for other subdirectories of F<Mixed>, instead of
+creation of such file in all year-subdirectories, one can make file
+F<Mixed/.top_heading> which contains C<-1>.
+
 Otherwise the content of this file is used as a toplevel heading for
 this directory.
 
@@ -1388,7 +1398,9 @@ Modify the formatting macros to suit your needs.  (Of more tricky
 stuff, mention C<\squeezeContunuationLines> and C<\parskip>, which
 regulate the density of lines - without changing the line font; note
 that setting C<\parskip> is a part of the action of
-C<\squeezeContunuationLines>.)
+C<\squeezeContunuationLines>.  C<\columnsep> regulates the horizontal
+separation of columns.  One can also fine-tune the vertical position
+of the start of the first page.)
 
 One can combine two (or more) lists (e.g., one with the short style, and
 one with the long style) into one output file; the generated files

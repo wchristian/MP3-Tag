@@ -7,7 +7,7 @@ use MP3::Tag 0.9714;
 use Getopt::Std 'getopts';
 use Config;
 
-$VERSION = '1.08';
+$VERSION = '1.10';
 use strict;
 
 $Getopt::Std::STANDARD_HELP_VERSION = 1;
@@ -381,7 +381,7 @@ EOC
 	}
       }
       $mp3->id3v2_frames_autofill()
-	unless $opt{d} or $opt{N} or $f eq ''
+	unless @{$opt{d}} or $opt{N} or $f eq ''
 	  or not ($modify or $opt{u} or $mp3->is_id3v2_modified);
       $opt{u} and warn "No update needed\n" unless $modify or $mp3->is_id3v2_modified;
 
@@ -420,7 +420,7 @@ EOC
 	my $binary = $opt{x} > 2 ? '_' : '';
 	print $mp3->interpolate("%{ID3v2:%{${binary}out_frames[<<//>>]}\n}");
       }
-      return unless ($modify or $opt{u} and $mp3->is_id3v2_modified)
+      return unless ($modify or $opt{u} and ($opt{u}>1 or $mp3->is_id3v2_modified))
 	and not $opt{D};	# Dry run
       $mp3->frames_translate if $opt{2};
       $mp3->update_tags($data, $opt{2});
@@ -514,13 +514,17 @@ deduceable fields (via the method id3v2_frames_autofill()) is
 performed unless C<-d> or C<-N> options are given.)
 
 The option C<-u> writes (C<u>pdates) the fetched information to the
-MP3 ID3 tags.  This option is assumed if tag elements are set via
-command-line options.  (Effects of this option may be overridden by C<-D>
+MP3 ID3 tags.  This option is assumed if there are command-line options
+which explicitly set tag elements (C<-a>, C<-t> etc., and C<-F>, C<-d>).
+(Effects of this option may be overridden by giving C<-D>
 option.)  If C<-2> option is also given, forces write of ID3v2 tag
 even if the info fits the ID3v1 tag (in addition, this option enables
 auto-update of "personal name" fields, and corresponding titles
 according to values of C<translate_person>, C<person_frames> etc.
-configuration settings; see L<"Normalization of fields">).
+configuration settings; see L<"Normalization of fields">).  This option
+is ignored if no change to tags is detected; however, one can force an
+update by repeating this option (useful if you expect the change the
+"format" of the tag, as opposed to its "content").
 
 The option C<-p> prints a message using the next argument as format
 (by default C<\\>, C<\t>, C<\n> are replaced by backslash, tab and

@@ -1,5 +1,5 @@
 package Normalize::Text::Music_Fields;	# Music_Normalize_Fields
-$VERSION = '0.01';
+$VERSION = '0.02';
 use strict;
 use Config;
 #use utf8;			# Needed for 5.005...
@@ -1077,8 +1077,8 @@ sub load_lists () {
      my @comp = (@f, $last);
      $tr{"\L@comp"} ||= $_;
      $tr{lc $last} ||= $_;		# Two Bach's
-     $tr{"\L$f[0] $last"} ||= $_;
      if (@f) {
+       $tr{"\L$f[0] $last"} ||= $_;	# With the first of pre-names only
        my @ini = map substr($_, 0, 1), @f;
        $tr{"\L$ini[0] $last"} ||= $_;	# One initial
        $tr{"\L@ini $last"} ||= $_;	# All initials

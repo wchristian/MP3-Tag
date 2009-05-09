@@ -36,10 +36,11 @@ use MP3::Tag::Inf;
 use MP3::Tag::CDDB_File;
 use MP3::Tag::Cue;
 use MP3::Tag::ParseData;
+use MP3::Tag::ImageSize;
 use MP3::Tag::LastResort;
 
 use vars qw/$VERSION @ISA/;
-$VERSION="1.00";
+$VERSION="1.10";
 @ISA = qw( MP3::Tag::User MP3::Tag::Site MP3::Tag::Vendor
 	   MP3::Tag::Implemenation ); # Make overridable
 *config = \%MP3::Tag::Implemenation::config;
@@ -47,8 +48,8 @@ $VERSION="1.00";
 package MP3::Tag::Implemenation;	# XXXX Old mispring...
 use vars qw/%config/;
 %config = ( autoinfo			  => [qw( ParseData ID3v2 ID3v1
-						 CDDB_File Inf Cue filename
-						 LastResort )],
+						 CDDB_File Inf Cue ImageSize
+						 filename LastResort )],
 	    cddb_files			  => [qw(audio.cddb cddb.out cddb.in)],
 	    v2title			  => [qw(TIT1 TIT2 TIT3)],
 	    composer			  => ['TCOM|a'],
@@ -83,6 +84,10 @@ use vars qw/%config/;
 	    name_for_field_normalization  => ['%{composer}'],
 	    local_cfg_file		  => ['~/.mp3tagprc'],
 	    extra_config_keys		  => [],
+	    is_writable			  => ['writable_by_extension'],	
+ # ExifTool says: ID3 may be in MP3/MPEG/AIFF/OGG/FLAC/APE/RealAudio (MPC).
+	    writable_extensions		  => [qw(mp3 mp2 id3 tag ogg mpg mpeg
+						 mp4 aiff flac ape ram mpc)],
 	  );
 {
   my %e;
@@ -175,8 +180,9 @@ do the handling of reading/writing the tags itself.
 
 At the moment MP3::Tag::ID3v1 and MP3::Tag::ID3v2 are supported for
 read and write; MP3::Tag::Inf, MP3::Tag::CDDB_File, MP3::Tag::File, 
-MP3::Tag::Cue, MP3::Tag::LastResort are supported for read access (the information
-obtained by parsing CDDB files, F<.inf> file, the filename, and F<.cue> file).
+MP3::Tag::Cue, MP3::Tag::ImageSize, MP3::Tag::LastResort are supported
+for read access (the information obtained by parsing CDDB files, F<.inf> file,
+the filename, and F<.cue> file, and obtained via L<Image::Size|Image::Size>).
 
 =over 4
 
@@ -281,7 +287,7 @@ sub get_tags {
 
     # Will not create a reference loop
     local $self->{__proxy}[0] = $self unless $self->{__proxy}[0] or $ENV{MP3TAG_TEST_WEAKEN};
-    for $id (qw(ParseData ID3v2 ID3v1 Inf CDDB_File Cue LastResort)) {
+    for $id (qw(ParseData ID3v2 ID3v1 Inf CDDB_File Cue ImageSize LastResort)) {
 	my $ref = "MP3::Tag::$id"->new_with_parent($self->{filename}, $self->{__proxy});
 	next unless defined $ref;
 	$self->{$id} = $ref;
@@ -579,7 +585,7 @@ sub disk_alphanum ($) {
   sprintf "%0${l}d", $r1;
 }
 
-my %ignore_0length = qw(ID3v1 1 CDDB_File 1 Inf 1 Cue 1);
+my %ignore_0length = qw(ID3v1 1 CDDB_File 1 Inf 1 Cue 1 ImageSize 1);
 
 sub auto_field($;$) {
     my ($self, $elt, $from) = (shift, shift, shift);
@@ -588,12 +594,12 @@ sub auto_field($;$) {
     my $parts = $self->get_config($elt) || $self->get_config('autoinfo');
     $self->get_tags;
 
-    my $do_can = ($elt =~ /^cd\w+_id$/);
+    my $do_can = ($elt =~ /^(cd\w+_id|height|width|mime_type|img_type)$/);
     foreach my $part (@$parts) {
 	next unless exists $self->{$part};
 	next if $do_can and not $self->{$part}->can($elt);
 	next unless defined (my $out = $self->{$part}->$elt());
-	# Ignore 0-length answers from ID3v1, CDDB_File, Cue, and Inf
+	# Ignore 0-length answers from ID3v1, CDDB_File, Cue, ImageSize, and Inf
 	next if not length $out and $ignore_0length{$part}; # These return ''
 	return [$out, $part] if $from;
 	return $out;
@@ -610,7 +616,7 @@ for my $elt ( qw( title track artist album comment year genre ) ) {
   }
 }
 
-for my $elt ( qw( cddb_id cdindex_id ) ) {
+for my $elt ( qw( cddb_id cdindex_id height width mime_type img_type ) ) {
   no strict 'refs';
   *$elt = sub (;$) {
     my $self = shift;
@@ -649,6 +655,13 @@ for my $elt ( qw(title artist album year comment track genre) ) {
     $mp3->new_tag("ID3v2") unless exists $mp3->{ID3v2};
     $mp3->{ID3v2}->$elt( $val );
   }
+}
+
+sub aspect ($) {
+  my $self = shift;
+  my ($w, $h) = ($self->width, $self->height);
+  return unless $w and $h;
+  $w/$h;
 }
 
 =item genre()
@@ -723,7 +736,7 @@ Possible items are:
 
 Configure the order in which ID3v1-, ID3v2-tag and filename are used
 by autoinfo.  The default is C<ParseData, ID3v2, ID3v1, CDDB_File, Inf, Cue,
-filename, LastResort>.  Options can be elements of the default list.
+ImageSize, filename, LastResort>.  Options can be elements of the default list.
 The order
 in which they are given to config also sets the order how they are
 used by autoinfo. If an option is not present, it will not be used
@@ -1082,6 +1095,19 @@ warnings, and would not affect operation of C<MP3::Tag>.  Applications using
 this module may add to this list to allow their configuration by the same
 means as configuration of C<MP3::Tag>.
 
+=item is_writable
+
+Contains a boolean value, or a method name and argument list
+to call whether the tag may be added to the file.  Defaults to
+writable_by_extension().
+
+=item writable_extensions
+
+Contains a list of extensions (case insensitive) for which the tag may be
+added to the file.  Current default is C<mp3 mp2 id3 tag ogg mpg mpeg
+mp4 aiff flac ape ram mpc> (extracted from L<ExifTool> docs; may be tuned
+later).
+
 =item *
 
 Later there will be probably more things to configure.
@@ -1113,7 +1139,7 @@ sub config {
 		   decode_encoding_v1 decode_encoding_v2
 		   decode_encoding_filename decode_encoding_files
 		   decode_encoding_inf decode_encoding_cddb_file
-		   name_for_field_normalization
+		   name_for_field_normalization is_writable writable_extensions
 		   id3v2_frames_autofill local_cfg_file);
     my @tr = map "translate_$_", qw( title track artist album comment
 				     year genre comment_collection
@@ -1682,6 +1708,11 @@ The short ESCAPEs are replaced by
 		o	channel_mode
 		u	frames
 
+		h	height	(these 4 for image files, Image::Size required)
+		w	width
+		mT	mime_type
+		iT	img_type
+		aR	aspect ratio
 
 Additionally, ESCAPE can be a string enclosed in curly braces C<{}>.
 The interpretation is the following:
@@ -1928,6 +1959,12 @@ my %trans = qw(	t	title
 		m1	disk1
 		m2	disk2
 
+		h	height
+		w	width
+		mT	mime_type
+		iT	img_type
+		aR	aspect
+
 		v	mpeg_version
 		L	mpeg_layer_roman
 		?	is_stereo
@@ -1967,7 +2004,7 @@ my %trans = qw(	t	title
 my $frame_bra =			# FRAM | FRAM03 | FRAM(lang)[
   qr{\w{4}(?:(?:\d\d)|(?:\([^()]*(?:\([^()]+\)[^()]*)*\))?(?:(\[)|(?=[\}:|&])))}s; # 1 group for begin-descr
 # used with offset by 1: 2: fill, 3: same, 4: $left, 5..6 width, 5: key
-my $pat_rx = qr/^%(?:(?:\((.)\)|([^-.1-9%a-zA-Z]))?(-)?(\d+))?(?:\.(\d+))?([talygcnfFeEABDNvLrqQSmsCpouMH{%])/s;
+my $pat_rx = qr/^%(?:(?:\((.)\)|([^-.1-9%a-zA-Z]))?(-)?(\d+))?(?:\.(\d+))?([talygcnfFeEABDNvLrqQSmsCpouMHwh{%])/s;
 
 
 # $upto TRUE: parse the part including $upto char
@@ -2013,14 +2050,14 @@ sub _interpolate ($$;$$) {
 	} elsif ($what eq '{' and $_[1] =~ s/^U(\d+)}//) {	# User data
 	    next if $skip;
 	    $str = $self->get_user($1);
-	} elsif ($what eq '{' and $_[1] =~ s/^(aC|tT|c[TC]|[mMS]L|SML|i[DI]|n[012]|m[A12])}//) {
+	} elsif ($what eq '{' and $_[1] =~ s/^(a[CR]|tT|c[TC]|[mMS]L|SML|i[DIT]|n[012]|m[A12T])}//) {
 	  # CDDB, IDs, or leftover times
 	    next if $skip;
 	    my $meth = $trans{$1};
 	    $str = $self->$meth();
 	} elsif ($what eq '{' and # $frame_bra has 1 group, No. 5
 		 # 2-char fields as above, except for [mMS]L|SML
-		 $_[1] =~ s/^(!)?(([talygcnfFeEABD]|ID3v[12]|ID3v2-modified|aC|tT|c[TC]|i[DI]|n[012]|m[A12]|U\d+)(:|\|\|?)|$frame_bra)//) {
+		 $_[1] =~ s/^(!)?(([talygcnfFeEABDwh]|ID3v[12]|ID3v2-modified|a[CR]|tT|c[TC]|i[DIT]|n[012]|m[A12T]|U\d+)(:|\|\|?)|$frame_bra)//) {
 	    # Alternation with simple/complicated stuff
 	    my ($neg, $id, $simple, $delim) = ($1, $2, $3, $4);
 	    if ($delim) {	# Not a frame id...
@@ -2363,6 +2400,13 @@ sub _parse_rex_anything ($$) {
     return $min ? '(.*?)' : '(.*)';
 }
 
+sub __pure_track_rex ($) {
+  my $t = shift()->track;
+  $t =~ s/^0+//;
+  $t =~ s,^(.*?)(/.*),\Q$1\E(?:\Q$2\E)?,;
+  $t
+}
+
 sub _parse_rex_microinterpolate {	# $self->idem($code, $groups, $ecount)
     my ($self, $code, $groups) = (shift, shift, shift);
     return '%' if $code eq '%';
@@ -2377,8 +2421,8 @@ sub _parse_rex_microinterpolate {	# $self->idem($code, $groups, $ecount)
     $_[0]++, return $self->_rex_protect_filename($self->interpolate("%$1"), $1)
 	if $code =~ /^=([ABDfFN]|{d\d+})$/;
     $_[0]++, return quotemeta($self->interpolate("%$1"))
-	if $code =~ /^=([talgceE]|{.*})$/;
-    $_[0]++, return '(?<!\d)0*' . quotemeta($self->track) . '(?!\d)'
+	if $code =~ /^=([talgceEwh]|{.*})$/;
+    $_[0]++, return '(?<!\d)0*' . $self->__pure_track_rex . '(?!\d)'
 	if $code eq '=n';
     $_[0]++, return '(?<!\d)' . quotemeta($self->year) . '(?!\d)'
 	if $code eq '=y';
@@ -2836,6 +2880,53 @@ sub format_time {
 my @channel_modes = ('stereo', 'joint stereo', 'dual channel', 'mono');
 sub channel_mode	{ $channel_modes[shift->channel_mode_int] }
 
+=item can_write()
+
+checks permission to write per the configuration variable C<is_writable>.
+
+=item can_write_or_die($mess)
+
+as can_write(), but die()s on non-writable files with meaningful error message
+($mess is prepended to the message).
+
+=item die_cant_write($mess)
+
+die() with the same message as can_write_or_die().
+
+=item writable_by_extension()
+
+Checks that extension is (case-insensitively) in the list given by
+configuration variable C<writable_extensions>.
+
+=cut
+
+sub can_write ($) {
+    my $self = shift;
+    my @wr = @{ $self->get_config('is_writable') };	# Make copy
+    return $wr[0] if @wr == 1 and not $wr[0] =~ /\D/;
+    my $meth = shift @wr;
+    $self->$meth(@wr);
+}
+
+sub writable_by_extension ($) {
+    my $self = shift;
+    my $wr = $self->get_config('writable_extensions');	# Make copy
+    $self->extension_is(@$wr);
+}
+
+sub die_cant_write ($$) {
+    my($self, $what) = (shift, shift);
+    die $what, $self->interpolate("File %F is not writable per `is_writable' confuration variable, current value is `"),
+		join(', ', @{$self->get_config('is_writable')}), "'";
+}
+
+sub can_write_or_die ($$) {
+    my($self, $what) = (shift, shift);
+    my $wr = $self->can_write;
+    return $wr if $wr;
+    $self->die_cant_write($what);
+}
+
 =item update_tags( [ $data,  [ $force2 ]] )
 
   $mp3 = MP3::Tag->new($filename);
@@ -2865,12 +2956,17 @@ needed.
 =cut
 
 sub update_tags {
-    my ($mp3, $data, $force2) = (shift, shift, shift);
+    my ($mp3, $data, $force2, $wr2) = (shift, shift, shift);
 
     $mp3->get_tags;
     $data = $mp3->autoinfo('from') unless defined $data;
 
-    $mp3->new_tag("ID3v1") unless exists $mp3->{ID3v1};
+#    $mp3->new_tag("ID3v1") unless $wr1 = exists $mp3->{ID3v1};
+    unless (exists $mp3->{ID3v1}) {
+	$mp3->can_write_or_die('update_tags() doing ID3v1: ');
+	$wr2 = 1;
+	$mp3->new_tag("ID3v1");
+    }
     my $elt;
     for $elt (qw/title artist album year comment track genre/) {
 	my $d = $data->{$elt};
@@ -2887,7 +2983,15 @@ sub update_tags {
       if not $force2 and $mp3->{ID3v1}->fits_tag($data)
 	and not exists $mp3->{ID3v2} and $do_length < 2;
 
-    $mp3->new_tag("ID3v2") unless exists $mp3->{ID3v2};
+#    $mp3->new_tag("ID3v2") unless exists $mp3->{ID3v2};
+    unless (exists $mp3->{ID3v2}) {
+	if (defined $wr2) {
+	    $mp3->die_cant_write('update_tags() doing ID3v2: ') unless $wr2;
+	} else {
+	    $mp3->can_write_or_die('update_tags() doing ID3v2: ');
+	}
+	$mp3->new_tag("ID3v2");
+    }
     for $elt (qw/title artist album year comment track genre/) {
 	my $d = $data->{$elt};
 	next unless defined $d;
@@ -2946,6 +3050,22 @@ sub _massage_genres ($;$) {   # Thanks to neil verplank for the prototype
     }
     return if $firstnum;
     @genres;
+}
+
+=item extension_is
+
+  $mp3->extension_is(@EXT_LIST)
+
+returns TRUE if the extension of the filename coincides (case-insensitive)
+with one of the elements of the list.
+
+=cut
+
+sub extension_is ($@) {
+  my ($self) = (shift);
+  my $ext = lc($self->filename_extension_nodot());
+  return 1 if grep $ext eq lc, @_;
+  return;
 }
 
 sub DESTROY {

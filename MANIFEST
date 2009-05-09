@@ -21,6 +21,7 @@ lib/Normalize/Text/Music_Fields/G_Gershwin.comp
 lib/Normalize/Text/Music_Fields/J_Brahms.comp
 lib/Normalize/Text/Music_Fields/L_van_Beethoven.comp
 lib/Normalize/Text/Music_Fields/Music_Fields-rus.lst
+cddb.tmp
 cddb.tm
 data_pod.PL
 examples/README.txt
@@ -60,3 +61,4 @@ tk-tag/tk-tag.pl
 lib/MP3/Tag/ID3v2-Data.pod
 META.yml                                 Module meta-data (added by MakeMaker)
 README.shrink
+lib/MP3/Tag/ImageSize.pm

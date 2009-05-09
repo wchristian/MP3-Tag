@@ -1,3 +1,38 @@
+Release Name: 1.10
+====================
+
+Bump the version number to 1.10 to sync with mp3info2.
+
+Tag.pm: allow %=n to match against 1 if %n is 01.
+  new methods extension_is(), can_write(), can_write_or_die(), die_cant_write(),
+    writable_by_extension().
+  new methods (require Image::Size) width(), height(), img_type(), mime_type(),
+    aspect().
+  new interpolation escapes %w %h %{iT} %{mT} %{aR} for these methods.
+  new configuration variables: `is_writable' defaults to writable_by_extension
+    (older versions behaved as if it is 1);  `writable_extensions' to
+       mp3 mp2 id3 tag ogg mpg mpeg mp4 aiff flac ape ram mpc
+  update_tags() checks for can_write().
+
+cddb.tmp was omitted from distribution (==> test failure).
+
+ID3v2.pm: the code to treat compressed fields was completely busted.
+	  (Still not tested a lot...)
+  Now always write UTF-16 as `UTF-16LE with BOM' to cowtow to M$'s bugs
+	(must disable: triggers unsync...; set $ENV{MP3TAG_USE_UTF_16LE}
+	 to TRUE to enable).
+
+Music_Fields.pm: could give `uninitialized' warning in presence of
+	one-word person names in the tables.
+
+ImageSize.pm: new handler.
+
+mp3info2: -d was busted by the repeated-option logic.
+  allow a repeated -u to force update.
+
+typeset_audio_dir: if one of the arguments was 0, -e could fail.
+  Decrease default min-gap before [year] from 0.75em to 0.65em (looks better).
+
 Release Name: 1.00
 ====================
 
