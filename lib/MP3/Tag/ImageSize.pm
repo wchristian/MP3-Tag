@@ -28,6 +28,10 @@ It implements width(), height() and mime_type() methods (sizes in pixels).
 
 They return C<undef> if C<Image::Size> is not available, or does not return valid data.
 
+=head1 SEE ALSO
+
+L<Image::Size>, L<MP3::Tag>
+
 =cut
 
 

@@ -62,3 +62,4 @@ lib/MP3/Tag/ID3v2-Data.pod
 META.yml                                 Module meta-data (added by MakeMaker)
 README.shrink
 lib/MP3/Tag/ImageSize.pm
+lib/MP3/Tag/ImageExifTool.pm

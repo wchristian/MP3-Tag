@@ -15,7 +15,7 @@ use vars qw /%format %long_names %res_inp @supported_majors %v2names_to_v3
 	     %back_splt %embedded_Descr
 	    /;
 
-$VERSION="1.10";
+$VERSION="1.11";
 @ISA = 'MP3::Tag::__hasparent';
 
 my $trustencoding = $ENV{MP3TAG_DECODE_UNICODE};
@@ -1672,7 +1672,7 @@ sub _frame_select {		# if $extract_content false, return all found
     } elsif ($lang_special) {
       $languages = [$lang_special->[1]];
     } else {
-      $languages = $self->get_config('default_language');	# Array ref!
+      $languages = [@{$self->get_config('default_language')}]; # Copy to modify
     }
     my $format = get_format($fname);
     my $have_lang = grep $_->{name} eq $lang_field, @$format;

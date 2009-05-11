@@ -37,17 +37,18 @@ use MP3::Tag::CDDB_File;
 use MP3::Tag::Cue;
 use MP3::Tag::ParseData;
 use MP3::Tag::ImageSize;
+use MP3::Tag::ImageExifTool;
 use MP3::Tag::LastResort;
 
 use vars qw/$VERSION @ISA/;
-$VERSION="1.10";
+$VERSION="1.11";
 @ISA = qw( MP3::Tag::User MP3::Tag::Site MP3::Tag::Vendor
 	   MP3::Tag::Implemenation ); # Make overridable
 *config = \%MP3::Tag::Implemenation::config;
 
 package MP3::Tag::Implemenation;	# XXXX Old mispring...
 use vars qw/%config/;
-%config = ( autoinfo			  => [qw( ParseData ID3v2 ID3v1
+%config = ( autoinfo			  => [qw( ParseData ID3v2 ID3v1 ImageExifTool
 						 CDDB_File Inf Cue ImageSize
 						 filename LastResort )],
 	    cddb_files			  => [qw(audio.cddb cddb.out cddb.in)],
@@ -179,10 +180,12 @@ It provides an easy way to access the functions of separate modules which
 do the handling of reading/writing the tags itself.
 
 At the moment MP3::Tag::ID3v1 and MP3::Tag::ID3v2 are supported for
-read and write; MP3::Tag::Inf, MP3::Tag::CDDB_File, MP3::Tag::File, 
-MP3::Tag::Cue, MP3::Tag::ImageSize, MP3::Tag::LastResort are supported
-for read access (the information obtained by parsing CDDB files, F<.inf> file,
-the filename, and F<.cue> file, and obtained via L<Image::Size|Image::Size>).
+read and write; MP3::Tag::ImageExifTool, MP3::Tag::Inf, MP3::Tag::CDDB_File,
+MP3::Tag::File,  MP3::Tag::Cue, MP3::Tag::ImageSize, MP3::Tag::LastResort
+are supported for read access (the information obtained by
+L<Image::ExifTool|Image::ExifTool> (if present), parsing CDDB files,
+F<.inf> file, the filename, and F<.cue> file, and obtained via
+L<Image::Size|Image::Size>) (if present).
 
 =over 4
 
@@ -287,7 +290,7 @@ sub get_tags {
 
     # Will not create a reference loop
     local $self->{__proxy}[0] = $self unless $self->{__proxy}[0] or $ENV{MP3TAG_TEST_WEAKEN};
-    for $id (qw(ParseData ID3v2 ID3v1 Inf CDDB_File Cue ImageSize LastResort)) {
+    for $id (qw(ParseData ID3v2 ID3v1 ImageExifTool Inf CDDB_File Cue ImageSize LastResort)) {
 	my $ref = "MP3::Tag::$id"->new_with_parent($self->{filename}, $self->{__proxy});
 	next unless defined $ref;
 	$self->{$id} = $ref;
@@ -585,7 +588,7 @@ sub disk_alphanum ($) {
   sprintf "%0${l}d", $r1;
 }
 
-my %ignore_0length = qw(ID3v1 1 CDDB_File 1 Inf 1 Cue 1 ImageSize 1);
+my %ignore_0length = qw(ID3v1 1 CDDB_File 1 Inf 1 Cue 1 ImageSize 1 ImageExifTool 1);
 
 sub auto_field($;$) {
     my ($self, $elt, $from) = (shift, shift, shift);
@@ -594,12 +597,12 @@ sub auto_field($;$) {
     my $parts = $self->get_config($elt) || $self->get_config('autoinfo');
     $self->get_tags;
 
-    my $do_can = ($elt =~ /^(cd\w+_id|height|width|mime_type|img_type)$/);
+    my $do_can = ($elt =~ /^(cd\w+_id|height|width|bit_depth|mime_type|img_type|_duration)$/);
     foreach my $part (@$parts) {
 	next unless exists $self->{$part};
 	next if $do_can and not $self->{$part}->can($elt);
 	next unless defined (my $out = $self->{$part}->$elt());
-	# Ignore 0-length answers from ID3v1, CDDB_File, Cue, ImageSize, and Inf
+	# Ignore 0-length answers from ID3v1, ImageExifTool, CDDB_File, Cue, ImageSize, and Inf
 	next if not length $out and $ignore_0length{$part}; # These return ''
 	return [$out, $part] if $from;
 	return $out;
@@ -616,7 +619,7 @@ for my $elt ( qw( title track artist album comment year genre ) ) {
   }
 }
 
-for my $elt ( qw( cddb_id cdindex_id height width mime_type img_type ) ) {
+for my $elt ( qw( cddb_id cdindex_id height width bit_depth mime_type img_type _duration ) ) {
   no strict 'refs';
   *$elt = sub (;$) {
     my $self = shift;
@@ -657,11 +660,16 @@ for my $elt ( qw(title artist album year comment track genre) ) {
   }
 }
 
-sub aspect ($) {
+sub aspect_ratio ($) {
   my $self = shift;
   my ($w, $h) = ($self->width, $self->height);
   return unless $w and $h;
   $w/$h;
+}
+
+sub aspect_ratio3 ($) {
+  my $r = shift->aspect_ratio();
+  $r ? sprintf '%.3f', $r : $r;
 }
 
 =item genre()
@@ -735,9 +743,9 @@ Possible items are:
 =item autoinfo
 
 Configure the order in which ID3v1-, ID3v2-tag and filename are used
-by autoinfo.  The default is C<ParseData, ID3v2, ID3v1, CDDB_File, Inf, Cue,
-ImageSize, filename, LastResort>.  Options can be elements of the default list.
-The order
+by autoinfo.  The default is C<ParseData, ID3v2, ID3v1, ImageExifTool,
+CDDB_File, Inf, Cue, ImageSize, filename, LastResort>.
+Options can be elements of the default list.  The order
 in which they are given to config also sets the order how they are
 used by autoinfo. If an option is not present, it will not be used
 by autoinfo (and other auto-methods if the specific overriding config
@@ -1712,7 +1720,8 @@ The short ESCAPEs are replaced by
 		w	width
 		mT	mime_type
 		iT	img_type
-		aR	aspect ratio
+		aR	aspect_ratio3 (3 decimal places after the dot)
+		bD	bit_depth
 
 Additionally, ESCAPE can be a string enclosed in curly braces C<{}>.
 The interpretation is the following:
@@ -1963,7 +1972,8 @@ my %trans = qw(	t	title
 		w	width
 		mT	mime_type
 		iT	img_type
-		aR	aspect
+		aR	aspect_ratio3
+		bD	bit_depth
 
 		v	mpeg_version
 		L	mpeg_layer_roman
@@ -2004,8 +2014,12 @@ my %trans = qw(	t	title
 my $frame_bra =			# FRAM | FRAM03 | FRAM(lang)[
   qr{\w{4}(?:(?:\d\d)|(?:\([^()]*(?:\([^()]+\)[^()]*)*\))?(?:(\[)|(?=[\}:|&])))}s; # 1 group for begin-descr
 # used with offset by 1: 2: fill, 3: same, 4: $left, 5..6 width, 5: key
-my $pat_rx = qr/^%(?:(?:\((.)\)|([^-.1-9%a-zA-Z]))?(-)?(\d+))?(?:\.(\d+))?([talygcnfFeEABDNvLrqQSmsCpouMHwh{%])/s;
+my $pat_rx = qr/^%(?:(?:\((.)\)|([^-.1-9%a-zA-Z]))?(-)?(\d+))?(?:\.(\d+))?([talgcynfFeEABDNvLrqQSmsCpouMHwh{%])/s;
+# XXXX Partially repeated below, search for `talgc'??? vLrqQSmsCpouMH miss???
 
+my $longer_f = qr(a[CR]|tT|c[TC]|i[DIT]|n[012]|m[A12T]|bD);
+# (a[CR]|tT|c[TC]|[mMS]L|SML|i[DIT]|n[012]|m[A12T]|bD)
+#  a[CR]|tT|c[TC]|i[DIT]|n[012]|m[A12T]|bD
 
 # $upto TRUE: parse the part including $upto char
 # Very restricted backslashitis: only $upto and \ before $upto-or-end
@@ -2050,14 +2064,14 @@ sub _interpolate ($$;$$) {
 	} elsif ($what eq '{' and $_[1] =~ s/^U(\d+)}//) {	# User data
 	    next if $skip;
 	    $str = $self->get_user($1);
-	} elsif ($what eq '{' and $_[1] =~ s/^(a[CR]|tT|c[TC]|[mMS]L|SML|i[DIT]|n[012]|m[A12T])}//) {
+	} elsif ($what eq '{' and $_[1] =~ s/^($longer_f|[mMS]L|SML)}//o) {
 	  # CDDB, IDs, or leftover times
 	    next if $skip;
 	    my $meth = $trans{$1};
 	    $str = $self->$meth();
 	} elsif ($what eq '{' and # $frame_bra has 1 group, No. 5
-		 # 2-char fields as above, except for [mMS]L|SML
-		 $_[1] =~ s/^(!)?(([talygcnfFeEABDwh]|ID3v[12]|ID3v2-modified|a[CR]|tT|c[TC]|i[DIT]|n[012]|m[A12T]|U\d+)(:|\|\|?)|$frame_bra)//) {
+		 # 2-char fields as above, except for [mMS]L|SML (XXX: vLrqQSmsCpouMH ???)
+		 $_[1] =~ s/^(!)?(([talgcynfFeEABDNvLrqQSmsCpouMHwh]|ID3v[12]|ID3v2-modified|$longer_f|U\d+)(:|\|\|?)|$frame_bra)//o) {
 	    # Alternation with simple/complicated stuff
 	    my ($neg, $id, $simple, $delim) = ($1, $2, $3, $4);
 	    if ($delim) {	# Not a frame id...
@@ -2416,12 +2430,13 @@ sub _parse_rex_microinterpolate {	# $self->idem($code, $groups, $ecount)
 	if $code eq 'y' and ($self->get_config('year_is_timestamp'))->[0];
     (push @$groups, $code), return '((?<!\d)[12]\d{3}(?!\d)|\A\Z)'
 	if $code eq 'y';
+    # Filename parts ABDfFN and vLrqQSmsCpouMH not settable...
     (push @$groups, $code), return $self->_parse_rex_anything($code)
 	if $code =~ /^[talgc]$/;
     $_[0]++, return $self->_rex_protect_filename($self->interpolate("%$1"), $1)
 	if $code =~ /^=([ABDfFN]|{d\d+})$/;
     $_[0]++, return quotemeta($self->interpolate("%$1"))
-	if $code =~ /^=([talgceEwh]|{.*})$/;
+	if $code =~ /^=([talgceEwhvLrqQSmsCpouMH]|{.*})$/;
     $_[0]++, return '(?<!\d)0*' . $self->__pure_track_rex . '(?!\d)'
 	if $code eq '=n';
     $_[0]++, return '(?<!\d)' . quotemeta($self->year) . '(?!\d)'
@@ -2761,12 +2776,15 @@ for my $elt (keys %mp3info) {
   no strict 'refs';
   my $k = $mp3info{$elt};
   *$elt = sub (;$) {
-    require MP3::Info;
     # $MP3::Info::try_harder = 1;	# Bug: loops infinitely if no frames
     my $self = shift;
-    my $info = MP3::Info::get_mp3info($self->abs_filename);
-    die "Didn't get valid data from MP3::Info for `".($self->abs_filename)."': $@"
-      unless defined $info;
+    my $info = $self->{mp3info};
+    unless ($info) {
+      require MP3::Info;
+      $info = MP3::Info::get_mp3info($self->abs_filename);
+      die "Didn't get valid data from MP3::Info for `".($self->abs_filename)."': $@"
+        unless defined $info;
+    }
     $info->{$k}
   }
 }
@@ -2775,10 +2793,10 @@ sub frequency_Hz ($) {
   1000 * (shift->frequency_kHz);
 }
 
-sub mpeg_layer_roman	{ 'I' x (shift->mpeg_layer) }
-sub total_millisecs_int_fetch	{ int (0.5 + 1000 * shift->total_secs_fetch) }
-sub frames_padded_YN	{ shift->frames_padded() ? 'Yes' : 'No' }
-sub is_copyrighted_YN	{ shift->is_copyrighted() ? 'Yes' : 'No' }
+sub mpeg_layer_roman	{ eval { 'I' x (shift->mpeg_layer) } || '' }
+sub total_millisecs_int_fetch	{ int (0.5 + 1000 * shift->duration_secs) }
+sub frames_padded_YN	{ eval {shift->frames_padded() ? 'Yes' : 'No' } || '' }
+sub is_copyrighted_YN	{ eval {shift->is_copyrighted() ? 'Yes' : 'No' } || '' }
 
 sub total_millisecs_int {
   my $self = shift;
@@ -2802,6 +2820,17 @@ sub leftover_secs_float	{ shift->total_millisecs_int % 60000 / 1000 }
 sub time_mm_ss {		# Borrowed from MP3::Info
   my $self = shift;
   sprintf "%.2d:%.2d", $self->total_mins, $self->leftover_secs;
+}
+
+sub duration_secs {	# Tricky: in which order to query MP3::Info and ExifTool?
+  my $self = shift;
+  my $d = $self->{duration};
+  return $d if defined $d;	# Cached value
+  return $self->{duration} = $self->total_secs_fetch	# Have MP3::Info or a chance to work
+    if $self->{mp3info} or $self->{filename} =~ /\.mp[23]$/i;
+  my $r = $self->_duration;	# Next: try ExifTool
+  $r = $self->total_secs_fetch unless $r; # Try MP3::Info anyway
+  return $r;
 }
 
 =item format_time

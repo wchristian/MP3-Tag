@@ -1,3 +1,32 @@
+Release Name: 1.11
+====================
+
+ImageExifTool.pm: new handler (a very minimal implementation).
+
+Tag.pm: support for ImageExifTool.pm
+  (problems: deleting frames is not noticed by ExifTool, so the field can be
+     "revived" by update_tags(), so we disable id3 in ExifTool [XXX: must be
+     made conditional on the list of  handlers]; genre-->None massaged to '')
+             'NumColors' => 'Use BitDepth'???  
+  rename aspect() to aspect_ratio()
+  new function aspect_ratio3() rounds to 3 decimals in the fractional part
+  map %{aR} to aspect_ratio3()  [instead of aspect()]
+  new method bit_depth() (for images; exact semantic [8 or 24?!] not clear)
+  new interpolation %{bD} for bit_depth
+  new method _duration() (for AVI only???)
+  caching MP3::Info data avoid extraneous calls
+  Make duration-fetch methods try _duration() too.
+  mpeg_layer_roman(), frames_padded_YN(), is_copyrighted_YN() now may return ''
+    if MP3::Info fails.
+  Allow for the rest of 1-char escapes NvLrqQSmsCpouMH to be conditioned and
+    %=X-ed.
+  //o-ptimise RExes.
+
+ID3v2.pm: could modify config('default_language').
+
+mp3info2: make MP3-specific fields optional
+  emit %wx%h for images and video (and append bit_depth if present)
+
 Release Name: 1.10
 ====================
 
