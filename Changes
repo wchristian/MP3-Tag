@@ -1,3 +1,47 @@
+Release Name: 1.12
+====================
+
+Music_Normalize_Fields: new short names in RUS table.
+  Eliminate one record which caused infinite recursion (vas i iva).
+
+ID3v2: replace order of encode() and func_back() when writing frames
+	(e.g., would break unicode genre with space in it).
+       "very low-level" docs had get_frame() mixed up with get_frames()
+		(thanks to Brendan Byrd)
+       new_with_parent() inserts header into parent on failure.
+       optional argument to _Data_to_MIME to return false on unknown.
+
+Tag.pm: better docs for interpolate().
+	misprints in example of update_tags().
+	When truncating inside interpolation, and the value is a number
+	  round it, not truncate.
+	Move old meaning of %{aR} to %{a3} (truncation to 3 places).
+	%{aR} is not rounded now; one may truncate as in %.5{aR} to restrict width.
+	New method mime_Pretype(); new interpolation escape %{mP}.
+	Optional argument to _Data_to_MIME() to return false on unknown.
+	For (image) mime types we can handle ourselves, do it.
+	default return for mime_type() is MP3 (in absense of support modules).
+	Misprint in _Data_to_MIME() made it useless.
+	New method aspect_ratio_inverted().
+	New escape %{aI} for aspect_ratio_inverted().
+	Allow for rounding of duration before formatting T[=>m,?H:,m].
+
+File.pm: fix mismatched C<> in POD.
+
+mp3info2: -F disk_n=DISKNUMBER supported, 
+  new configuration variable frames_write_creates_dirs (default 0) to create
+    intermediate directories baz/boz on -F "foo > baz/boz/bar".
+  Use %{mP} instead of `Audio' in the -x output.
+  Make -x=output of MP3-related data conditional on its presence (still wrong
+    since MP3::Info can return such data for non-MP3 files too XXX)
+
+typeset_audio_dir:
+	new option -r
+	Make haveLyrics/haveAPIC symbols take less space
+	Macroize pre/postSectionSkip, make it and \columnsep font-size dependent
+	Slightly more docs in the generated code on grid/non-grid typesetting
+	Slightly more docs
+
 Release Name: 1.11
 ====================
 
@@ -8,12 +52,12 @@ Tag.pm: support for ImageExifTool.pm
      "revived" by update_tags(), so we disable id3 in ExifTool [XXX: must be
      made conditional on the list of  handlers]; genre-->None massaged to '')
              'NumColors' => 'Use BitDepth'???  
-  rename aspect() to aspect_ratio()
+  rename aspect() to aspect_ratio() (undocumented)
   new function aspect_ratio3() rounds to 3 decimals in the fractional part
   map %{aR} to aspect_ratio3()  [instead of aspect()]
-  new method bit_depth() (for images; exact semantic [8 or 24?!] not clear)
+  new method bit_depth() (for images; exact semantic [8 or 24?!] not clear)  (undocumented)
   new interpolation %{bD} for bit_depth
-  new method _duration() (for AVI only???)
+  new method _duration() (for very few formats only???) (undocumented)
   caching MP3::Info data avoid extraneous calls
   Make duration-fetch methods try _duration() too.
   mpeg_layer_roman(), frames_padded_YN(), is_copyrighted_YN() now may return ''
@@ -36,7 +80,7 @@ Tag.pm: allow %=n to match against 1 if %n is 01.
   new methods extension_is(), can_write(), can_write_or_die(), die_cant_write(),
     writable_by_extension().
   new methods (require Image::Size) width(), height(), img_type(), mime_type(),
-    aspect().
+    aspect(). (undocumented)
   new interpolation escapes %w %h %{iT} %{mT} %{aR} for these methods.
   new configuration variables: `is_writable' defaults to writable_by_extension
     (older versions behaved as if it is 1);  `writable_extensions' to

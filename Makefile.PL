@@ -3,18 +3,22 @@ use Config;
 use strict;
 
 my @programs_to_install = qw(mp3info2 typeset_audio_dir audio_rename);
-my $install_bin = 1;
 
-if ( grep $_ eq '-n', @ARGV
-	 or grep /^LIB=/, @ARGV and not grep /^INSTALLSCRIPT=/, @ARGV ) {
+my $lib_only = (grep /^LIB=/, @ARGV and not grep /^INSTALLSCRIPT=/, @ARGV);
+my @scr = grep /^INSTALLSCRIPT=/, @ARGV;
+(my $scr = pop @scr) =~ s/^INSTALLSCRIPT=//;
+$scr = $Config{installscript} unless defined $scr;
+
+if ( grep $_ eq '-n', @ARGV or $lib_only ) {
   @ARGV = grep $_ ne '-n', @ARGV;
+  warn "I see LIB= but not no INSTALLSCRIPT=\n" if $lib_only;
   warn "Skipping installation of scripts...\n";
   @programs_to_install = ();
 } else {
   warn <<EOW;
 
 This program comes with several scripts which I would try to install in
-directory $Config{installscript}.
+directory $scr.
 
 To skip, rerun with option -n given to Makefile.PL.
 

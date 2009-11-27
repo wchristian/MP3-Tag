@@ -15,7 +15,7 @@ my @INI_ARGV = @ARGV;
 # use duration, year, whole dates, replace @ by %, basename of output files,
 # ignore 'author' on level > this in directory tree
 # use 'album' for titles with depth above this..., encodings, no comment,lyrics
-getopts(my $opts = '2:1:TyYn@B:a:t:e:cLN:P:F:', \%opt);
+getopts(my $opts = '2:1:TyYn@B:a:t:e:cLN:P:F:r:', \%opt);
 my(%plan, $both);
 
 sub set_plan ($) {
@@ -56,6 +56,9 @@ if ($opt{e}) {	# Comma-separated, each 'encoding' or '[d][h][o]:encoding'
   }
 }
 $opt{n} = $ENV{TYPESET_AUDIO_TRACK} || 1 if $opt{n};
+
+my $glob_pat = qr/\.mp3$/i;
+$glob_pat = qr/$opt{r}/ if defined $opt{r};
 
  # booklet using precooked (broken) style cd-cover
  # Since it is very feature-poor, we did not try to debug a more decorated
@@ -312,7 +315,7 @@ sub print_this_mp3 ($) {
 
 # Callback for find():
 sub print_mp3 {
-  return unless -f $_ and /\.mp3$/i;
+  return unless -f $_ and /$glob_pat/;
   #print STDERR "... $_\n";
   my $tag = MP3::Tag->new($_);
   my @parts = split m<[/\\]>, $File::Find::dir;
@@ -526,11 +529,13 @@ EOP
 if (1 or $opt{L}) {		# Allows inclusion of -L lists in non-L docs
   $common .= <<'EOP';
 
+\def\negTHINspace{\kern-.12em}		% \negTHINspace is -.1666666em
+\def\hasUnsyncLyrics{\global\let\ifhaveLyrics\iftrue \negTHINspace\textcircled{\textsc{l}}\negTHINspace}
+\def\hasSyncLyrics{\global\let\ifhaveLyrics\iftrue \negTHINspace\textcircled{\textsc{s}}\negTHINspace}
+\def\hasAPIC{\global\let\ifhaveAPIC\iftrue \negTHINspace\textcircled{\textsc{i}}\negTHINspace}
+
 \newif\ifhaveLyrics \haveLyricsfalse
 \newif\ifhaveAPIC \haveAPICfalse
-\def\hasUnsyncLyrics{\global\let\ifhaveLyrics\iftrue \textcircled{\textsc{l}}}
-\def\hasSyncLyrics{\global\let\ifhaveLyrics\iftrue \textcircled{\textsc{s}}}
-\def\hasAPIC{\global\let\ifhaveAPIC\iftrue \textcircled{\textsc{i}}}
 \def\reportLyricsSyntaxEtc{\ifhaveLyrics{\tiny\hasUnsyncLyrics/\hasSyncLyrics\quad---\quad
   has (un)syncronized lyrics\ifhaveAPIC ;\qquad \else \par \fi}\fi
   \ifhaveAPIC{\tiny\hasAPIC\quad---\quad
@@ -611,9 +616,9 @@ my $cdcover_set = <<'EOP';	# XXXX \small for backcover?
 
 \def\preSection{\pagebreak[2]\bgroup\centering\SectionFont
   \SectionSqueeze
-  \addvspace{0.2ex}%
+  \addvspace{\preSectionSKIP}%
   }
-\def\postSection{\par\egroup  \addvspace{.08ex}}
+\def\postSection{\par\egroup  \addvspace{\postSectionSKIP}}
 \CDbookletMargin=1.5mm
 \CDbookletTopMargin=1.5mm
 \CDsingleMargin=1.5mm
@@ -650,7 +655,8 @@ my $class_backcover = <<'EOP';
 EOP
 
 my $set_columns = <<'EOP';
-\columnsep 9pt
+%  Tested to work reasonably well with fonts between 5pt and 10pt
+\RecordFont \columnsep 1.8ex \advance \columnsep -1.4pt	% ex of RecordFont
 \columnseprule.4pt
 %\multicolsep 3pt plus 4pt minus 3pt
 % Need to put adjacent horizontal lines, so this is better:
@@ -678,6 +684,7 @@ EOP
 \documentclass{article}
 
 % Use 2mm margin inside 12cm x 12cm page; page numbers fit only accidentally...
+% add a4paper or letterpaper if needed (e.g., on broken LaTeX installations)
 \usepackage[centering,landscape,width=11.6truecm,height=11.6truecm,nohead,nofoot]{geometry}
 
 \usepackage{multicol}
@@ -743,7 +750,7 @@ EOP
 
 my $normal_text_class = <<'EOP';
 \documentclass[12pt]{article}
-\usepackage[margin=1cm,nohead,nofoot]{geometry}
+\usepackage[margin=1cm,nohead,nofoot]{geometry}	% may need a4paper/letterpaper
 \usepackage{multicol}
 
 EOP
@@ -757,21 +764,21 @@ for my $o (grep defined $_->[0],
 		TitleNameFont \bfseries\footnotesize      TitleFont \tinyish
 		SectionFont \bfseries\footnotesize
 		SubSectionFont \bfseries\scriptsize
-		RecordFont \tinyish columns 3 global_multicol 1 rules 1)}],
+		RecordFont \mdseries\tinyish columns 3 global_multicol 1 rules 1)}],
 	   [$out_cdcover_std, "$class_cdcover_std$common_enc$cdcover_set$cdcover_on",
 	    {qw(TitleNameFont \bfseries\tiny      TitleFont \tiny
 		SectionFont \bfseries\small SubSectionFont \bfseries\small
-		RecordFont \scriptsize columns 2)}],
+		RecordFont \mdseries\scriptsize columns 2)}],
 	   [$out_normal_text,
 	    "$normal_text_class$set_columns$common_enc$set_headers",
 	    {qw(TitleNameFont \bfseries\normalsize      TitleFont \small
 		SectionFont \bfseries\normalsize SubSectionFont \bfseries\small
-		RecordFont \footnotesize columns 2 rules 1)}],
+		RecordFont \mdseries\footnotesize columns 2 rules 1)}],
 	   [$out_cdcover_our, "$duplex_instr_and_class$set_columns$common_enc"
 	    . "$set_headers",
 	    {qw(TitleNameFont \bfseries\normalsize      TitleFont \footnotesize
 		SectionFont \bfseries\normalsize SubSectionFont \bfseries\small
-		RecordFont \scriptsize columns 2 rules 1 frame 1)}]) {
+		RecordFont \mdseries\scriptsize columns 2 rules 1 frame 1)}]) {
   my($out,$txt) = ($o->[0], $o->[1]);
   print $out output_setup($o->[2]);
   if (defined $opt{B}) {
@@ -780,8 +787,9 @@ for my $o (grep defined $_->[0],
 \\input{$opt{B}_common}%
 EOQ
 
-%\def\squeezeContunuationLines{% typesets continuation lines very squeezed
+%\def\squeezeContunuationLines{% typeset continuation lines almost max-squeezed
 %   % ARGS = BETWEEN LINES / +ITS INC / BASELINE-SKIP-in-height-of(0) / PARSKIP
+%   % PARSKIP is the skip between records, the rest before continuation line
 %   \contunuationLineSkip{-0.2ex}{plus 0.24ex}{1.3}{-0.08ex plus 0.44ex}}
 
 EOP
@@ -829,8 +837,9 @@ $optional_cont .= <<'EOQ' . <<EOI . <<'EOP';
 
   \RecordFont		\RecordSqueeze	% enable now
 
-  %\def\squeezeContunuationLines{% typesets continuation lines very squeezed
+  %\def\squeezeContunuationLines{% typesets continuation lines almost max-squeezed
   % % ARGS = BETWEEN LINES / +ITS INC / BASELINE-SKIP-in-height-of(0) / PARSKIP
+  % % PARSKIP is the skip between records, the rest before continuation line
   %   \contunuationLineSkip{-0.2ex}{plus 0.24ex}{1.3}{-0.08ex plus 0.44ex}}
 
   { \def\preSubSectionSKIP{1.2pt}	% Pre- and post- level-2 heading
@@ -1022,10 +1031,13 @@ typeset_audio_dir - produce B<TeX> listing of directories with audio files.
 =head1 DESCRIPTION
 
 Scans directory (or directories) given on the command line, using
-L<MP3::Tag> to obtain information about audio files (currently only
-MP3s).  Produces (one or more, depending on B<-B> option) B<TeX> files
+L<MP3::Tag|MP3::Tag> to obtain information about audio files (to process
+non-MP3 files, extra modules may be needed, see L<MP3::Tag>, and B<-r
+FILENAME_FILTER> option must be given).  Produces
+(one or more, depending on B<-B> option) B<TeX> files
 with commands to typeset human-readable listings.  Non-directories on
-the command line are ignored.
+the command line are ignored.  (May also be used to process non-audio
+files, if L<MP3::Tag|MP3::Tag> may extract the title/etc info from them.)
 
 With B<-B>, the file F<*_list.tex> contains all the data about audio
 files (when B<-P> with both C<short,long> is given, another similar file
@@ -1113,7 +1125,10 @@ Emit duration information.
 =item B<-n>
 
 Enable emit track number.  Environment variable TYPESET_AUDIO_TRACK
-may contain the format to interpolate for typesetting.
+may contain the format to interpolate for typesetting (defaults to
+C<%{mA}%{n1}>).  For example, set TYPESET_AUDIO_TRACK to C<%{n1}>
+to use "pure" track number instead of combination of media/disk number
+and track number.
 
 =item B<-1>
 
@@ -1197,6 +1212,11 @@ intuitive; you may want to check/edit this file for corrections.
 (defaults to C<T2A>): the name of C<LaTeX> font encoding.  If your
 installation is broken and C<T2A> is not available, you may try C<T1>
 or C<OT1>.  See L<"PROBLEMS when TYPESETTING">.
+
+=item B<-r FILENAME_FILTER>
+
+sets the regular expression for filenames to look for (the default is
+C<(?i:\.mp3$)>.
 
 =back
 
@@ -1333,6 +1353,11 @@ Add C<-sPAPERSIZE=a4> as a C<ps2pdf> option.
 
 =back
 
+Example commandline working with some of complications
+
+  dvips -t landscape -f < All_cdbooklet-a4.dvi | psbook | pstops -pa4 "2:0(0,-6cm)+1(0,6cm)" | pstops -pa4 "2:0,1U(1w,1h)" > Output-even_flipped-a4.ps
+    && ps2pdf -sPAPERSIZE=a4 -dAutoRotatePages=/None Output-even_flipped-a4
+
 Likewise, quite often one needs to add C<-pletter> to C<ps2ps> commandlines
 for correct printing to letter-size paper.  You can check the resulting PDF
 file in a viewer: the status line should show the correct paper size
@@ -1400,7 +1425,10 @@ regulate the density of lines - without changing the line font; note
 that setting C<\parskip> is a part of the action of
 C<\squeezeContunuationLines>.  C<\columnsep> regulates the horizontal
 separation of columns.  One can also fine-tune the vertical position
-of the start of the first page.)
+of the start of the first page; for backcover, also tune up C<\CDbackMargin>
+and C<\CDbackTopMargin>.  The definition(s) of C<\squeezeContunuationLines>
+are commented out (by C<%>) in non-F<*_common.tex> files; you may uncomment
+it, and tune it up separately for each TeX file.)
 
 One can combine two (or more) lists (e.g., one with the short style, and
 one with the long style) into one output file; the generated files

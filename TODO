@@ -40,3 +40,6 @@ MP3::Tag::ID3v2.pm
   when the frame is read, not when it is written 
 
 * Support for v2.4 output (is input fully supported now?)
+
+* http://gabriel.mp3-tech.org/mp3infotag.html
+  http://web.archive.org/web/20010827032505/privatewww.essex.ac.uk/~djmrob/replaygain/rg_data_format.html

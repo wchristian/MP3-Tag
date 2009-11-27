@@ -3,11 +3,12 @@
 use FindBin;
 use lib "$FindBin::Bin";
 
-use MP3::Tag 0.9714;
+use MP3::Tag 1.12;		# Need conditional %L; %{mP}
 use Getopt::Std 'getopts';
 use Config;
+use File::Path;
 
-$VERSION = '1.10';
+$VERSION = '1.12';
 use strict;
 
 $Getopt::Std::STANDARD_HELP_VERSION = 1;
@@ -79,7 +80,7 @@ if ($opt{e}) {
 }
 
 my $e_opt = MP3::Tag->get_config('extra_config_keys');
-MP3::Tag->config('extra_config_keys', @$e_opt, 'empty-F-deletes');
+MP3::Tag->config('extra_config_keys', @$e_opt, qw(empty-F-deletes frames_write_creates_dirs));
 MP3::Tag->config('empty-F-deletes', 1)
   unless defined MP3::Tag->get_config1('empty-F-deletes');
 
@@ -121,7 +122,8 @@ if ($opt{'@'}) {
 my %F_human = qw( composer	TCOM
 		  text_by	TEXT
 		  orchestra	TPE2
-		  conductor	TPE3);	# Only most useful, and not -l etc...
+		  conductor	TPE3
+		  disk_n	TPOS);	# Only most useful, and not -l etc...
 
 my $FNAME = qr/(?:		# 1: Whole specifier
 		 \w{4}		# 2: Frame name
@@ -318,7 +320,17 @@ EOC
 	    next unless defined $o; # Should not happen???
 	    die "An attempt to extract `non-simple' frame `$set->[0]' to a file"
 	      if ref $o;
-	    open FF, "> $v" or die "Can't open `$v' for write: $!";
+	    unless (open FF, "> $v") {
+	      my $rc;
+	      if (MP3::Tag->get_config1('frames_write_creates_dirs')) {
+		my ($dir) = ($v =~ m,^(.*)[\\/],s);
+		if (defined $dir and not -d $dir) {
+		  mkpath $dir;		# would die on error
+		  $rc = open FF, "> $v"
+		}
+	      }
+	      die "Can't open `$v' for write: $!" unless $rc;
+	    }
 	    binmode FF if $b;
 	    syswrite FF, $o, length $o or die "syswrite to `$v': $!"
 	      if length $o;
@@ -411,8 +423,8 @@ EOC
 
       if ($opt{x}) {
 	print $mp3->interpolate(<<EOC); # Aligned for MPEG2 L3
-Audio:      %-12{T[?Hh,?{mL}m,{SML}s]} MPEG %v Layer %L    %r KB/s, %qKHz (%o)
-Copyright:  %-4C         Frames Padded: %-4p Frames:   %-7u %{ID3v1:ID3v1: present}%{ID3v2:
+%{mP}:      %-12{T[?Hh,?{mL}m,{SML}s]} %{w:%wx%h%{bD:x%{bD}} }%{L:MPEG %v Layer %L    %r KB/s, %qKHz (%o)}
+%{C:Copyright:  %-4C         Frames Padded: %-4p Frames:   %-7u }%{ID3v1:ID3v1: present}%{ID3v2:
 ID3v2: %{ID3v2-modified:modified}%{!ID3v2-modified:%{ID3v2-stripped}+%{ID3v2-pad}pad=%{ID3v2-size} Bytes}; frames present: %{frames}}
 EOC
       }
@@ -486,7 +498,7 @@ mp3info2 - get/set MP3 tags; uses L<MP3::Tag> to get default values.
 The program prints a message summarizing tag info (obtained via
 L<MP3::Tag|MP3::Tag> module) for specified files.
 
-It may also update the information in MP3 tags.  This happens in three
+It may also update the information in ID3 tags.  This happens in three
 different cases.
 
 =over
@@ -584,21 +596,25 @@ with starting/trailing whitespace stripped), otherwise it is read in
 binary mode.  (Whitespace is required about the C<E<lt>> signs.)  If
 C<E<lt>> is replaced by C<?E<lt>>, the value is set only if frame is
 not yet present, and if the file exists; if replaced by C<E<gt>>, the
-value (if present) is written to F<FILE>.
+value (if present) is written to F<FILE> (creation of intermediate directories
+is controlled by configuration option C<frames_write_creates_dirs>, the
+default is FALSE).
 
 Additionally, C<FRAME_spec> may be one of C<ID3v1> or C<ID3v2> or C<TAGS>;
 in this case, whole tags are written or read.  For example, for C<TAGS E<lt>
 FILE>, C<title artist album year genre comment track> info is calculated from
 F<FILE>, which may be raw tags, as produced with C<E<gt>>, or a valid MP3
-file.  (Likewise,  for C<ID3v1 E<lt> FILE>, the same info is extracted from
+file; if L<Image::ExifTool|Image::ExifTool> is present, the data may be
+read from arbitrary multimedia file.  (Likewise,  for C<ID3v1 E<lt> FILE>,
+the same info is extracted from
 C<ID3v1> tag only.) After this, in case of C<ID3v2> or C<TAGS>, C<ID3v2>
 frames are copied from the C<ID3v2> tag one-by-one.  (With suitable
 modifications for C<?E<lt>>.)
 
 By default, the "VALUE" for C<-F> is C<%>-interpolated; this can be
 changed by option C<-E>.  For user convenience, human-friendlier forms
-C<composer, text_by, orchestra, conductor> can be used instead of
-C<TCOM, TEXT, TPE2, TPE3>.
+C<composer, text_by, orchestra, conductor, disk_n> can be used instead of
+C<TCOM, TEXT, TPE2, TPE3, TPOS>.
 
 The option C<-P RECIPE> is a very powerful generalization of what can be done
 by options C<-F>, C<-d>, and C<-t -a -l -y -g -c -n>.  It may be
