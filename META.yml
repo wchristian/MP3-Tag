@@ -1,6 +1,6 @@
 --- #YAML:1.0
 name:               MP3-Tag
-version:            1.12
+version:            1.13
 abstract:           ~
 author:
     - "Thomas Geffert" <thg@users.sourceforge.net>, "Ilya Zakharevich" ilyaz@cpan.org

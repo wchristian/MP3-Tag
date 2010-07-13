@@ -905,7 +905,7 @@ track (this assumes the the track number can be found by other means).
 
 Suppose that a file F<Parts> in a directory of MP3 files has the following
 format: it has a preamble, then has a short paragraph of information per
-audio file, preceeded by the track number and dot:
+audio file, preceded by the track number and dot:
 
    ...
 
@@ -965,7 +965,7 @@ rearranges the title and comment I<provided> the title is of the form C<TITLE
 two chunks of comment corresponding to two occurences of C<%c> on the right
 hand side.)
 
-Finally, the fourth pattern is the same as in the preceeding example; it
+Finally, the fourth pattern is the same as in the preceding example; it
 removes spurious punctuation at the end of the title.
 
 More examples: removing string "with violin" from the start of the
@@ -1022,7 +1022,7 @@ Now suppose that there are two parallel file hierarchies of audio files,
 and of lyrics: audio files are in F<audio/dir_name/audio_name.mp3> with
 corresponding lyrics file in F<text/dir_name/audio_name.mp3>.  To attach
 lyrics to MP3 files (in C<COMM> frame with description C<lyrics> in language
-C<eng>), call
+C<eng> - I<this is a non-standard location, see below!>), call
 
   mp3info2 -@P "fim;../text/@{d0}/@B.txt;@{COMM(eng)[lyrics]}" -Ru .
 

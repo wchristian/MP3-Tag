@@ -1,7 +1,7 @@
 
 =head1 NAME 
 
-MP3::Tag::ID3v2-Data - get_frame() data format and supported frames
+MP3::Tag::ID3v2_Data - get_frame() data format and supported frames
 
 =head1 SYNOPSIS
 
@@ -22,8 +22,6 @@ MP3::Tag::ID3v2::get_frame().
 
 It contains also a list of all supported ID3v2-Frames.
 
-=over 4
-
 =head2 get_frame()
 
  ($info, $long) = $id3v2->get_frame($id);    # or
@@ -37,9 +35,11 @@ The names of all frames found in a tag can be retrieved with the L<get_frame_ids
 
 =head2 Using the returned data
 
-In the ID3v2.3 specifications 72 frames are defined, which can contain very
+In the ID3v2.3 specifications 73 frames are defined, which can contain very
 different information. That means that get_frame returns the information
 of different frames also in different ways.
+
+=over 4
 
 =item Simple Frames
 
@@ -121,6 +121,8 @@ and the long names of the frames as returned by $id3v2->get_frame():
 =item TDAT : Date
 
 =item TDLY : Playlist delay
+
+=item TDRC : Recording time
 
 =item TENC : Encoded by
 
@@ -218,7 +220,7 @@ list shows which keys can be found in the returned hash:
 
 =item AENC : Audio encryption
 
-  Keys: URL, Preview start, Preview length
+  Keys: URL, Preview start, Preview length, _Data
 
 =item APIC : Attached picture
 

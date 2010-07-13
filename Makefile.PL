@@ -36,21 +36,21 @@ WriteMakefile(
     'PREREQ_PM'         => {
 				# Compress::Zlib => 0,
 			   },
-    'PL_FILES'          => {'data_pod.PL'=>'lib/MP3/ID3v2-Data.pod'},
- #   'clean'             => {FILES => 'ID3v2-Data.pod'},	# is included!
+    'PL_FILES'          => {'data_pod.PL'=>'lib/MP3/Tag/ID3v2_Data.pod'},
+ #   'clean'             => {FILES => 'ID3v2_Data.pod'},	# is included!
 );
 
-# Tell MakeMaker about manifying ID3v2-Data.pod
+# Tell MakeMaker about manifying ID3v2_Data.pod
 package MY;
 sub manifypods {
     my $self = shift;
-    $self->{MAN3PODS}->{'lib/MP3/Tag/ID3v2-Data.pod'} = '$(INST_MAN3DIR)/MP3::Tag::ID3v2-Data.$(MAN3EXT)';
+    $self->{MAN3PODS}->{'lib/MP3/Tag/ID3v2_Data.pod'} = '$(INST_MAN3DIR)/MP3::Tag::ID3v2_Data.$(MAN3EXT)';
     $self->SUPER::manifypods(@_);
 }
 
 sub postamble {	# Not good enough: is done after .pod is moved to INST_LIB...
   '
-lib/MP3/Tag/ID3v2-Data.pod :: lib/MP3/Tag/ID3v2.pm # pm_to_blib
+lib/MP3/Tag/ID3v2_Data.pod :: lib/MP3/Tag/ID3v2.pm # pm_to_blib
 
 ';
 }

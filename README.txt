@@ -25,7 +25,7 @@ module with
 man MP3::Tag
 man MP3::Tag::ID3v1
 man MP3::Tag::ID3v2
-man MP3::Tag::ID3v2-Data
+man MP3::Tag::ID3v2_Data
 
 More information about this project, new releases and so on, can
 be found at:         

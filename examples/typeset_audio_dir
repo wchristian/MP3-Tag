@@ -1162,7 +1162,7 @@ heading.  However, similar changes in F<part*.mp3> will not create a
 new heading.
 
 B<NOTE:> maybe this default of 2 is not very intuitive.  It is
-recommended to explicitely set this option to the value you feel
+recommended to explicitly set this option to the value you feel
 appropriate (C<1e100> would play role of infinity - so any change will
 generate a new second-level heading).
 

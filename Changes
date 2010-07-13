@@ -1,3 +1,30 @@
+Release Name: 1.13
+====================
+
+Apply patches from Ian:
+ Makefile.PL,data_pod.PL: Fix path of ID3v2-Data.pod.
+ extract-y.pl: Fix #! path to perl.
+ data_pod.PL, Cue.pm, File.pm, LastResort.pm, ID3v1.pm,
+   ID3v2.pm, Tag.pm: Fix pod
+ ID3v2.pm: fix frame numbering documentation
+   (http://bugs.debian.org/cgi-bin/bugreport.cgi?bug=3D523804)
+ Many: preceeded/explicitely striking again ;-)
+
+ID3v2:	add section BUGS with explanation of how we treat v2.4 frames.
+	extract MP3 start bytes even if ID3v2 tag is present.
+	recognize MP3 MIME type by start bytes
+
+Tag.pm:	document mime_Pretype(), mime_type().
+	New optional arguments to mime_Pretype(), mime_type().
+	ID3v2 genre tag with value "Blues" or "(0)" could not be set
+		(thanks to Eric Benson for analysis).
+
+ID3v2_Data.pod: rename s/-/_/ - cygwin buggy, fails manifying
+		- this was BS, the problem is elsewhere
+
+mp3info2: state another time that COMM(eng)[lyrics] is a non-standard place
+	  for lyrics...
+
 Release Name: 1.12
 ====================
 
@@ -24,7 +51,7 @@ Tag.pm: better docs for interpolate().
 	Misprint in _Data_to_MIME() made it useless.
 	New method aspect_ratio_inverted().
 	New escape %{aI} for aspect_ratio_inverted().
-	Allow for rounding of duration before formatting T[=>m,?H:,m].
+	Allow for rounding of duration before formatting T[=>m,?H:,{mL}].
 
 File.pm: fix mismatched C<> in POD.
 

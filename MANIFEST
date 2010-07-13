@@ -58,7 +58,7 @@ t/parser.t
 t/interpolate.t
 tk-tag/README
 tk-tag/tk-tag.pl
-lib/MP3/Tag/ID3v2-Data.pod
+lib/MP3/Tag/ID3v2_Data.pod
 META.yml                                 Module meta-data (added by MakeMaker)
 README.shrink
 lib/MP3/Tag/ImageSize.pm

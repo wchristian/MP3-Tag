@@ -1,4 +1,4 @@
-#!/usr/perl -w
+#!/usr/bin/perl -w
 use strict;
 
 my $opus = qr/Op|WoO/i;

@@ -1,11 +1,11 @@
 #!/usr/bin/perl -w
 
-## data_pod.PL creates the documentation File MP3::Tag::ID3v2-Data
+## data_pod.PL creates the documentation File MP3::Tag::ID3v2_Data
 
 use MP3::Tag;
 use MP3::Tag::ID3v2;
 
-$filename=shift || "./lib/MP3/Tag/ID3v2-Data.pod";
+$filename=shift || "./lib/MP3/Tag/ID3v2_Data.pod";
 
 open(POD, ">$filename");
 $std = select(POD);
@@ -16,7 +16,7 @@ print <<"INTRO";
 
 =head1 NAME 
 
-MP3::Tag::ID3v2-Data - get_frame() data format and supported frames
+MP3::Tag::ID3v2_Data - get_frame() data format and supported frames
 
 =head1 SYNOPSIS
 
@@ -37,8 +37,6 @@ MP3::Tag::ID3v2::get_frame().
 
 It contains also a list of all supported ID3v2-Frames.
 
-=over 4
-
 =head2 get_frame()
 
  (\$info, \$long) = \$id3v2->get_frame(\$id);    # or
@@ -55,6 +53,8 @@ The names of all frames found in a tag can be retrieved with the L<get_frame_ids
 In the ID3v2.3 specifications $#frames frames are defined, which can contain very
 different information. That means that get_frame returns the information
 of different frames also in different ways.
+
+=over 4
 
 =item Simple Frames
 
