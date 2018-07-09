@@ -240,7 +240,11 @@ ok($mp3->interpolate("%{TXXX[o$id]|TXXX[$id]}") eq 'Val', "Frame is |-interpolat
 ok($mp3->interpolate("%{TXXX[o$id]||$id0}") eq $id1, "Frame is ||-interpolatable with complicated expansion");
 ok($mp3->interpolate("%{TXXX[$id]||$id0}") eq 'Val', "Frame is ||-interpolatable with complicated expansion");
 ok($mp3->interpolate("%{TXXX[o$id]||%{TXXX[$id]}}") eq 'Val', "Frame is ||-interpolatable with a frame in expansion");
-ok($mp3->interpolate("%{TXXX[$id]&TXXX[$id]&TXXX[o$id]&TXXX[$id]}") eq 'Val; Val; Val', "Frame is &-interpolatable");
+
+$res = $mp3->interpolate("%{TXXX[$id]&TXXX[$id]&TXXX[o$id]&TXXX[$id]}");
+print "# %{TXXX[$id]&TXXX[$id]&TXXX[o$id]&TXXX[$id]} -> <$res>\n";
+ok($res eq 'Val; Val; Val', "Frame is &-interpolatable");
+
 ok($mp3->update_tags(), 'update');
 
 my $gif = <<EOF;

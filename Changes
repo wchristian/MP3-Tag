@@ -1,3 +1,27 @@
+Release Name: 1.14
+====================
+
+Tag.pm: Quiet warnings from 5.22.
+	Start implementing handlers: instead of FRAM(langs)[opts], one can use, e.g., func_name(ID3v1,Cue)[arg1][arg2]
+		   # ID3v2::_frame_select_by_descr is missing //s
+	New configuration variable ampersand_joiner (default '; ').
+	New method _auto_field_from() (abstracted from _auto_field()).
+	Change logic of calling ->can() in _auto_field_from().
+	_parse_rex_microinterpolate() would not update $ecount on seeing %%.
+	When parsing with %=c etc: with %==c the match fails if there is no comment.
+		(Checked the same way as for %{c:}.)
+	Support some of %-escapes not being matched (e.g, due to alternatives in a REx).
+		(0-length matches were ignored anyway [when join()ing].)
+	parse_rex(), parse_rex_match() may return an extra result (if %{handler}s are present).
+	Recognize ID3v2 frame names as [A-Z]{3}[A-Z\d] (was \w{4}).
+		(Detection frame/vs/handler happens via PACKAGES; so if lang codes inf/cue appear, we may be in trouble.)
+	Use the same code in parse(_rex)?_prepare.  (Now parse() allows the same %-constructs as parse_rex().)
+ID3v2.pm:
+	New method have_one_of_frames().
+	New methods *_have() (for simplest fields: title, comment, track, artist, album, genre, year).
+ImageExifTool.pm:
+	Comprehensive docs.
+
 Release Name: 1.13
 ====================
 

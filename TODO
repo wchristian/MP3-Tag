@@ -4,6 +4,15 @@ MP3::Tag.pm
 * perhaps restructuring of this wrapper module, as it 
   should be easier to say which Tag::modules should be used
 
+  Arguments in handlers
+
+  Direct handlers through __handler_read, __handler_write().  (To avoid security risks, writing-when-read-is-assumed etc.)
+  	Possibly needed on ID3v1/ID3v2 only (others cannot write yet).
+  Take into account that title() etc take arguments (write!).
+  	Be draconian when rejecting method calls; allow slack via config.
+  Allow Packages=*, pass through config.
+  Allow passing through field().
+
 * more testing
 
 MP3::Tag::ID3v1.pm

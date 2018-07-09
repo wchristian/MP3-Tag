@@ -15,7 +15,7 @@ use vars qw /%format %long_names %res_inp @supported_majors %v2names_to_v3
 	     %back_splt %embedded_Descr
 	    /;
 
-$VERSION = "1.12";
+$VERSION = "1.14";
 @ISA = 'MP3::Tag::__hasparent';
 
 my $trustencoding = $ENV{MP3TAG_DECODE_UNICODE};
@@ -1398,6 +1398,16 @@ sub title {
     return join '', @parts, $last;
 }
 
+sub have_one_of_frames {
+    my $self = shift;
+    return grep $self->frame_have($_), @_;
+}
+
+sub title_have {
+    my $self = shift;
+    $self->have_one_of_frames($self->v2title_order)
+}
+
 =item _comment([$language])
 
 Returns the file comment (COMM with an empty 'Description') from the tag, or
@@ -1406,8 +1416,8 @@ of the title).
 
 =cut
 
-sub _comment {
-    my $self = shift;
+sub __comment {
+    my($self, $check_have) = (shift, shift);
     my $language;
     $language = lc shift if @_;
     my @info = get_frames($self, "COMM");
@@ -1417,10 +1427,20 @@ sub _comment {
 	next unless exists $comment->{Description} and not length $comment->{Description};
 	next if defined $language and (not exists $comment->{Language}
 				       or lc $comment->{Language} ne $language);
-	return $comment->{Text};
+	return $check_have ? 1 : $comment->{Text} ;
     }
     return if grep $_ eq 'TIT3', $self->v2title_order;
-    return scalar $self->get_frame("TIT3");
+    return $check_have ? $self->frame_have("TIT3") : scalar $self->get_frame("TIT3");
+}
+
+sub _comment {
+    my $self = shift;
+    $self->__comment(!'only_check', @_);
+}
+
+sub comment_have {
+    my $self = shift;
+    $self->__comment('only_check', @_);
 }
 
 =item comment()
@@ -1857,6 +1877,11 @@ sub year {
     return $y;
 }
 
+sub year_have {
+    my $self = shift;
+    $self->have_one_of_frames(qw( TDRC TYER ))
+}
+
 =pod
 
 =item track( [$new_track] )
@@ -1876,6 +1901,11 @@ sub track {
 	return $self->add_frame('TRCK', @_);
     }
     return scalar $self->get_frame("TRCK");
+}
+
+sub track_have {
+    my $self = shift;
+    $self->frame_have('TRCK')
 }
 
 =pod
@@ -1911,6 +1941,11 @@ sub artist {
     return;
 }
 
+sub artist_have {
+    my $self = shift;
+    $self->have_one_of_frames(qw( TPE1 TPE2 TCOM TPE3 TEXT ))
+}
+
 =pod
 
 =item album( [ $new_album ] )
@@ -1937,6 +1972,13 @@ sub album {
     return scalar $self->get_frame("TIT1");
 }
 
+sub album_have {
+    my $self = shift;
+    return 1 if $self->frame_have('TALB');
+    return if grep $_ eq 'TIT1', $self->v2title_order;
+    return $self->frame_have('TIT1');
+}
+
 =item genre( [ $new_genre ] )
 
 Returns the genre string from TCON frame of the tag.
@@ -1957,6 +1999,11 @@ sub genre {
     return unless defined $g;
     $g =~ s/^\d+\0(?:.)//s;		# XXX Shouldn't this be done in TCON()?
     $g;
+}
+
+sub genre_have {
+    my $self = shift;
+    $self->frame_have('TCON')
 }
 
 =item version()

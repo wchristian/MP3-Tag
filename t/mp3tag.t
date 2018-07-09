@@ -7,7 +7,7 @@
 # Change 1..1 below to 1..last_test_to_print .
 # (It may become useful if the test is moved to ./t subdirectory.)
 
-BEGIN { $| = 1; print "1..137\n"; $ENV{MP3TAG_SKIP_LOCAL} = 1}
+BEGIN { $| = 1; print "1..139\n"; $ENV{MP3TAG_SKIP_LOCAL} = 1}
 END {print "MP3::Tag not loaded :(\n" unless $loaded;}
 use MP3::Tag;
 $loaded = 1;
@@ -113,10 +113,16 @@ ok($v2 && !defined $v2->_comment('GER'), "Checking no GER comment");
 ok($v2 && $v2->_comment('ENG') eq 'Another test...', "Checking ENG comment");
 ok($v2 && $mp3->comment() eq 'Another test...', "Checking ID3 comment");
 
-my $s = $mp3->interpolate('%%02t_Title: `%012.12t\'; %{TLAN} %{TLAN01: have %{TLAN01}} %{!TLAN02:, do not have TLAN02}');
+my $s = $mp3->interpolate('%%02t_Title: `%012.12t\'; %{TLAN} %{TLAN01: have %{TLAN01}} %{!TLAN02:, do not have TLAN02}');	#'
 print "# `$s'\n";
 #	        %02t_Title: `000000000New'; ENG  have ENG , do not have TLAN02
 ok($s && $s eq "%02t_Title: `000000000New'; ENG  have GER , do not have TLAN02", "Checking ID3 interpolation");
+$s = $mp3->interpolate('%%02{t(ID3v1)}_Title: `%012.12{t(ID3v1)}\'; %{TLAN} %{TLAN01: have %{TLAN01}} %{!TLAN02:, do not have TLAN02}');	#'
+print "# `$s'\n";
+ok($s && $s eq "%02{t(ID3v1)}_Title: `000000000New'; ENG  have GER , do not have TLAN02", "Checking handler ID3v1 interpolation");
+$s = $mp3->interpolate('%%02{t(ID3v2)}_Title: `%012.12{t(ID3v2)}\'; %{TLAN} %{TLAN01: have %{TLAN01}} %{!TLAN02:, do not have TLAN02}');	#'
+print "# `$s'\n";
+ok($s && $s eq "%02{t(ID3v2)}_Title: `000000000000'; ENG  have GER , do not have TLAN02", "Checking handler ID3v2 interpolation");
 #back to original tag
 open (FH, ">test2.mp3") or warn;
 binmode FH;
